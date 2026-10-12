@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "CoffeeShop",
+    "slug": "coffeeshop",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "coffeeshop",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
+    "android": {
+      "package": "com.coffeeshop.app",
+      "permissions": [
+        "android.permission.READ_SMS",
+        "android.permission.RECEIVE_SMS",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.CAMERA"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow CoffeeShop to scan employee activation QR codes."
+        }
+      ]
+    ],
+    "ios": {
+      "bundleIdentifier": "com.coffeeshop.app",
+      "supportsTablet": true
+    },
+    "extra": {
+      "apiUrl": "http://localhost:4000"
+    }
+  }
+}

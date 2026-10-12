@@ -1,0 +1,7 @@
+{
+  "name": "notification-listener",
+  "version": "0.1.0",
+  "description": "Android NotificationListenerService bridge for CoffeeShop payment capture",
+  "main": "index.ts",
+  "private": true
+}
