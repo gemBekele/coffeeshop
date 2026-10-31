@@ -143,8 +143,7 @@ async function main() {
         },
       });
 
-  // Starter (editable) SMS template presets. Owners clone and adjust these in
-  // the app; they are only starting points and ship as DRAFT.
+  // Starter SMS template presets. Owners can clone and adjust these in the app.
   const presets: Array<{
     name: string;
     provider: SmsProvider;
@@ -157,9 +156,9 @@ async function main() {
       provider: SmsProvider.TELEBIRR,
       allowlist: ["127"],
       templateBody:
-        "Dear customer, you have received ETB {amount} from {sender} on {date}. Transaction ID is {txnId}. Your balance is ETB {balance}.",
+        "You have received ETB {amount} from {senderName}({senderPhone}) on {date}. Your transaction number is {txnId}. Your current E-Money Account balance is ETB {balance}.",
       sampleSms:
-        "Dear customer, you have received ETB 250.00 from 0912345678 Abebe on 11/10/2026 14:32. Transaction ID is TB1234567890. Your balance is ETB 1,250.00.",
+        "Dear GEMEHU\nYou have received ETB 2.00 from Gemechu Girma(2519****4345)  on 12/10/2026 01:17:07. Your transaction number is DJC6OX8QZA. Your current E-Money Account balance is ETB 3.50.\nThank you for using telebirr\nEthio telecom",
     },
     {
       name: "CBE Birr - credited (preset)",
@@ -202,7 +201,7 @@ async function main() {
         name: preset.name,
         provider: preset.provider,
         direction: "CREDIT",
-        status: TemplateStatus.DRAFT,
+        status: TemplateStatus.ACTIVE,
         senderAllowlist: preset.allowlist,
         templateBody: preset.templateBody,
         sampleSms: preset.sampleSms,

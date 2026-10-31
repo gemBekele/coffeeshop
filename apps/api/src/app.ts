@@ -28,11 +28,22 @@ export function createApp() {
     message: { success: false, error: "Too many attempts, try again later" },
   });
 
+  const registerLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: "Too many sign-ups, try again later" },
+  });
+
   app.get("/health", (_req, res) => {
     res.json(ok({ status: "ok", uptime: process.uptime() }));
   });
 
-  app.use("/api/auth", loginLimiter);
+  // Only the credential endpoints are rate-limited; /refresh and /me are
+  // called frequently by the app and must not exhaust the budget.
+  app.use("/api/auth/login", loginLimiter);
+  app.use("/api/auth/register", registerLimiter);
   app.use("/api", routes);
 
   app.use(notFoundHandler);

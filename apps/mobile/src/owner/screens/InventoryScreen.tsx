@@ -1,39 +1,27 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import {
-  Badge,
   Btn,
+  BtnRow,
   Card,
-  Dropdown,
   Empty,
   Input,
+  ListRowCard,
   Loading,
-  NumberPad,
   Screen,
-  SectionTitle,
   Subtitle,
 } from "../../ui/kit";
 import { useApp } from "../../state/AppContext";
 import type { InventoryItem } from "../../api/client";
 
-const UNITS = ["g", "kg", "ml", "l", "pcs", "pack", "bottle", "scoop"];
-
-const MOVE_TYPES = [
-  { label: "Stock in", value: "IN" },
-  { label: "Stock out", value: "OUT" },
-  { label: "Waste / spoiled", value: "WASTE" },
-  { label: "Adjust (count)", value: "ADJUST" },
-];
-
-export function InventoryScreen() {
+export function InventoryScreen({ onBack }: { onBack: () => void }) {
   const { api } = useApp();
   const [items, setItems] = useState<InventoryItem[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newUnit, setNewUnit] = useState<string>("pcs");
+  const [newUnit, setNewUnit] = useState("kg");
   const [newQty, setNewQty] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
-  const [moveType, setMoveType] = useState<string>("IN");
+  const [selected, setSelected] = useState<InventoryItem | null>(null);
   const [qty, setQty] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -48,7 +36,7 @@ export function InventoryScreen() {
     try {
       await api.createInventoryItem({
         name: newName.trim(),
-        unit: newUnit,
+        unit: newUnit.trim() || "pcs",
         stockOnHand: Number(newQty) || 0,
       });
       setNewName("");
@@ -61,12 +49,12 @@ export function InventoryScreen() {
     }
   };
 
-  const recordMovement = async () => {
+  const move = async (type: "IN" | "OUT") => {
     if (!selected) return;
     const n = Number(qty);
-    if (!Number.isFinite(n) || n === 0) return setError("Enter a quantity");
+    if (!Number.isFinite(n) || n <= 0) return setError("Enter a quantity");
     try {
-      await api.stockMovement(selected, { type: moveType, quantity: n });
+      await api.stockMovement(selected.id, { type, quantity: n });
       setQty("");
       setSelected(null);
       setError(null);
@@ -76,54 +64,39 @@ export function InventoryScreen() {
     }
   };
 
-  const lowCount = (items ?? []).filter((i) => i.lowStock).length;
-
   return (
     <Screen
       title="Stock"
+      onBack={onBack}
       footer={
         adding ? (
           <Btn label="Cancel" variant="outline" onPress={() => setAdding(false)} />
         ) : (
-          <Btn label="Add item" onPress={() => setAdding(true)} />
+          <Btn label="+ Add stock item" onPress={() => setAdding(true)} />
         )
       }
     >
-      {lowCount > 0 ? (
-        <Card tone="invert">
-          <Text style={{ fontSize: 18, fontWeight: "800", color: "#FFFFFF" }}>
-            {lowCount} item{lowCount > 1 ? "s" : ""} running low
-          </Text>
-        </Card>
-      ) : null}
-
       {adding ? (
         <Card>
-          <SectionTitle>New item</SectionTitle>
           <Input
-            label="Name"
+            label="Item name"
             value={newName}
             onChangeText={setNewName}
-            placeholder="Oat milk"
+            placeholder="Coffee beans"
             autoCapitalize="words"
           />
-          <Dropdown
-            label="Unit"
-            title="Choose unit"
-            options={UNITS.map((u) => ({ label: u, value: u }))}
+          <Input
+            label="Unit (kg, l, pcs)"
             value={newUnit}
-            onChange={setNewUnit}
+            onChangeText={setNewUnit}
+            placeholder="kg"
           />
-          <SectionTitle>Opening quantity</SectionTitle>
-          <View style={num.display}>
-            <Text style={num.value}>{newQty || "0"}</Text>
-          </View>
-          <NumberPad
+          <Input
+            label="Opening quantity"
             value={newQty}
-            onChange={setNewQty}
-            allowDecimal
-            maxLength={10}
-            leftKey={{ label: "C", onPress: () => setNewQty("") }}
+            onChangeText={setNewQty}
+            placeholder="10"
+            keyboardType="numeric"
           />
           {error ? <Subtitle>{error}</Subtitle> : null}
           <Btn label="Save item" onPress={createItem} />
@@ -132,79 +105,48 @@ export function InventoryScreen() {
 
       {selected ? (
         <Card>
-          <SectionTitle>Record movement</SectionTitle>
-          <Dropdown
-            label="Type"
-            title="Choose movement"
-            options={MOVE_TYPES}
-            value={moveType}
-            onChange={setMoveType}
-          />
-          <View style={num.display}>
-            <Text style={num.value}>{qty || "0"}</Text>
-          </View>
-          <NumberPad
+          <Subtitle>Adjust {selected.name} ({selected.unit})</Subtitle>
+          <Input
             value={qty}
-            onChange={setQty}
-            allowDecimal
-            maxLength={10}
-            leftKey={{ label: "C", onPress: () => setQty("") }}
-            rightKey={{
-              label: "Save",
-              onPress: recordMovement,
-            }}
+            onChangeText={setQty}
+            placeholder="Quantity"
+            keyboardType="numeric"
           />
           {error ? <Subtitle>{error}</Subtitle> : null}
-          <Btn label="Done" variant="outline" onPress={() => setSelected(null)} />
+          <BtnRow>
+            <View style={{ flex: 1 }}>
+              <Btn label="− Stock out" variant="outline" onPress={() => move("OUT")} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Btn label="+ Stock in" onPress={() => move("IN")} />
+            </View>
+          </BtnRow>
         </Card>
       ) : null}
 
       {items === null ? (
         <Loading />
       ) : items.length === 0 ? (
-        <Empty text="No inventory items." />
+        <Empty text="No inventory items yet." />
       ) : (
-        items.map((item) => (
-          <Card key={item.id}>
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <Text style={{ fontSize: 20, fontWeight: "800", color: "#000000", flex: 1 }}>
-                {item.name}
-              </Text>
-              <Text style={{ fontSize: 22, fontWeight: "900", color: "#000000" }}>
-                {item.stockOnHand} {item.unit}
-              </Text>
-            </View>
-            {item.lowStock ? <Badge label="low stock" tone="invert" /> : null}
-            <Btn
-              label="Adjust"
-              variant="outline"
-              size="md"
+        <View style={{ gap: 10 }}>
+          {items.map((item) => (
+            <ListRowCard
+              key={item.id}
+              icon={item.lowStock ? "!" : "▪"}
+              highlight={item.lowStock}
+              title={item.name}
+              subtitle={item.lowStock ? "Running low · tap to restock" : "Tap to adjust"}
+              rightTop={`${item.stockOnHand} ${item.unit}`}
+              rightBottom={item.lowStock ? "Low" : "In stock"}
               onPress={() => {
-                setSelected(item.id);
+                setSelected(item);
                 setQty("");
-                setMoveType("IN");
               }}
             />
-          </Card>
-        ))
+          ))}
+        </View>
       )}
     </Screen>
   );
 }
-
-const num = {
-  display: {
-    borderWidth: 2,
-    borderColor: "#000000",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    alignItems: "center" as const,
-  },
-  value: { fontSize: 34, fontWeight: "900" as const, color: "#000000" },
-};

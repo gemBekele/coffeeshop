@@ -9,24 +9,10 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
+import { colors, font, radius } from "./theme";
+import { NavIcon, type NavIconName } from "./icons";
 
-export const colors = {
-  bg: "#FFFFFF",
-  surface: "#FFFFFF",
-  surfaceAlt: "#F2F2F2",
-  text: "#000000",
-  textMuted: "#6B6B6B",
-  border: "#000000",
-  borderSoft: "#DDDDDD",
-  onInverse: "#FFFFFF",
-};
-
-export const font = {
-  title: 30,
-  section: 22,
-  body: 18,
-  small: 14,
-};
+export { colors, font, radius };
 
 export function Screen({
   children,
@@ -35,6 +21,7 @@ export function Screen({
   right,
   scroll = true,
   footer,
+  fab,
 }: {
   children: React.ReactNode;
   title?: string;
@@ -42,17 +29,18 @@ export function Screen({
   right?: React.ReactNode;
   scroll?: boolean;
   footer?: React.ReactNode;
+  fab?: React.ReactNode;
 }) {
   return (
     <View style={styles.screen}>
       {title !== undefined ? (
         <View style={styles.header}>
           {onBack ? (
-            <Pressable onPress={onBack} hitSlop={14} style={styles.backBtn}>
+            <Pressable onPress={onBack} hitSlop={14} style={styles.circleBtn}>
               <Text style={styles.backText}>‹</Text>
             </Pressable>
           ) : (
-            <View style={styles.backBtn} />
+            <View style={{ width: 44 }} />
           )}
           <Text style={styles.headerTitle} numberOfLines={1}>
             {title}
@@ -64,6 +52,7 @@ export function Screen({
         <ScrollView
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           {children}
         </ScrollView>
@@ -71,6 +60,86 @@ export function Screen({
         <View style={styles.scrollFill}>{children}</View>
       )}
       {footer ? <View style={styles.footer}>{footer}</View> : null}
+      {fab ? (
+        <View style={styles.fabWrap} pointerEvents="box-none">
+          {fab}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+export function Fab({
+  label,
+  icon,
+  onPress,
+  accessibilityLabel,
+}: {
+  label?: string;
+  icon?: React.ReactNode;
+  onPress: () => void;
+  accessibilityLabel?: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label ?? "Action"}
+      style={({ pressed }) => [styles.fab, pressed && styles.pressed]}
+    >
+      {icon ?? <Text style={styles.fabText}>{label}</Text>}
+    </Pressable>
+  );
+}
+
+/** Camera-scan frame: four corner brackets with a line through the middle. */
+export function ScanIcon({
+  color = colors.onInverse,
+  size = 28,
+}: {
+  color?: string;
+  size?: number;
+}) {
+  const arm = size * 0.34;
+  const stroke = Math.max(2, size * 0.09);
+  const corner = (
+    pos: "tl" | "tr" | "bl" | "br",
+  ): ViewStyle => {
+    const base: ViewStyle = {
+      position: "absolute",
+      width: arm,
+      height: arm,
+      borderColor: color,
+    };
+    if (pos === "tl") {
+      return { ...base, top: 0, left: 0, borderTopWidth: stroke, borderLeftWidth: stroke, borderTopLeftRadius: 4 };
+    }
+    if (pos === "tr") {
+      return { ...base, top: 0, right: 0, borderTopWidth: stroke, borderRightWidth: stroke, borderTopRightRadius: 4 };
+    }
+    if (pos === "bl") {
+      return { ...base, bottom: 0, left: 0, borderBottomWidth: stroke, borderLeftWidth: stroke, borderBottomLeftRadius: 4 };
+    }
+    return { ...base, bottom: 0, right: 0, borderBottomWidth: stroke, borderRightWidth: stroke, borderBottomRightRadius: 4 };
+  };
+
+  return (
+    <View style={{ width: size, height: size }}>
+      <View style={corner("tl")} />
+      <View style={corner("tr")} />
+      <View style={corner("bl")} />
+      <View style={corner("br")} />
+      <View
+        style={{
+          position: "absolute",
+          left: size * 0.16,
+          right: size * 0.16,
+          top: size / 2 - stroke / 2,
+          height: stroke,
+          borderRadius: stroke,
+          backgroundColor: color,
+        }}
+      />
     </View>
   );
 }
@@ -98,12 +167,257 @@ export function Card({
   );
 }
 
-export function SectionTitle({ children }: { children: React.ReactNode }) {
+export function SectionHeader({
+  title,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
   return (
-    <Text style={styles.sectionTitle}>
-      {String(children).toUpperCase()}
-    </Text>
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionHeaderTitle}>{title}</Text>
+      {actionLabel && onAction ? (
+        <Pressable onPress={onAction} style={styles.seeAllPill}>
+          <Text style={styles.seeAllText}>{actionLabel}</Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
+}
+
+export function QuickActions({
+  items,
+}: {
+  items: Array<{ icon: string; label: string; onPress: () => void; highlight?: boolean }>;
+}) {
+  return (
+    <View style={styles.quickCard}>
+      {items.map((item) => (
+        <Pressable
+          key={item.label}
+          onPress={item.onPress}
+          style={({ pressed }) => [styles.quickItem, pressed && styles.pressed]}
+        >
+          <View
+            style={[
+              styles.quickCircle,
+              item.highlight && { backgroundColor: colors.brand },
+            ]}
+          >
+            <Text
+              style={[
+                styles.quickIcon,
+                item.highlight && { color: colors.onInverse },
+              ]}
+            >
+              {item.icon}
+            </Text>
+          </View>
+          <Text style={styles.quickLabel} numberOfLines={1}>
+            {item.label}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+export function ListRowCard({
+  icon,
+  title,
+  subtitle,
+  rightTop,
+  rightBottom,
+  onPress,
+  highlight,
+}: {
+  icon: string;
+  title: string;
+  subtitle?: string;
+  rightTop?: string;
+  rightBottom?: string;
+  onPress?: () => void;
+  highlight?: boolean;
+}) {
+  const inner = (
+    <View style={[styles.listCard, highlight && styles.listCardHighlight]}>
+      <View
+        style={[
+          styles.listIconCircle,
+          highlight && { backgroundColor: colors.brand },
+        ]}
+      >
+        <Text
+          style={[
+            styles.listIconText,
+            highlight && { color: colors.onInverse },
+          ]}
+        >
+          {icon}
+        </Text>
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={styles.listTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text style={styles.listSub} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {rightTop !== undefined || rightBottom !== undefined ? (
+        <View style={{ alignItems: "flex-end", gap: 2 }}>
+          {rightTop !== undefined ? (
+            <Text style={styles.listRightTop}>{rightTop}</Text>
+          ) : null}
+          {rightBottom !== undefined ? (
+            <Text style={styles.listRightBottom}>{rightBottom}</Text>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+  if (onPress) {
+    return (
+      <Pressable onPress={onPress} style={({ pressed }) => pressed && styles.pressed}>
+        {inner}
+      </Pressable>
+    );
+  }
+  return inner;
+}
+
+
+export function SettingsGroup({
+  label,
+  children,
+}: {
+  label?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.settingsGroup}>
+      {label ? <Text style={styles.settingsGroupLabel}>{label}</Text> : null}
+      <View style={styles.settingsCard}>{children}</View>
+    </View>
+  );
+}
+
+export function SettingsRow({
+  title,
+  subtitle,
+  value,
+  onPress,
+  last,
+}: {
+  title: string;
+  subtitle?: string;
+  value?: string;
+  onPress?: () => void;
+  last?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed }) => [
+        styles.settingsRow,
+        !last && styles.settingsRowDivider,
+        pressed && styles.pressed,
+      ]}
+    >
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={styles.settingsRowTitle}>{title}</Text>
+        {subtitle ? (
+          <Text style={styles.settingsRowSub} numberOfLines={2}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {value ? <Text style={styles.settingsRowValue}>{value}</Text> : null}
+      {onPress ? <Text style={styles.settingsChevron}>›</Text> : null}
+    </Pressable>
+  );
+}
+
+export function StatPair({
+  label,
+  value,
+  hint,
+  strong,
+  last,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  strong?: boolean;
+  last?: boolean;
+}) {
+  return (
+    <View style={[styles.statPair, !last && styles.settingsRowDivider]}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={styles.statPairLabel}>{label}</Text>
+        {hint ? <Text style={styles.statPairHint}>{hint}</Text> : null}
+      </View>
+      <Text style={[styles.statPairValue, strong && styles.statPairValueStrong]}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+export function PillTabBar<T extends string>({
+  tabs,
+  active,
+  onSelect,
+}: {
+  tabs: Array<{ key: T; label: string; icon: NavIconName }>;
+  active: T;
+  onSelect: (key: T) => void;
+}) {
+  return (
+    <View style={styles.tabWrap}>
+      <View style={styles.tabBar}>
+        {tabs.map((tab) => {
+          const isActive = tab.key === active;
+          return (
+            <Pressable
+              key={tab.key}
+              onPress={() => onSelect(tab.key)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={tab.label}
+              style={({ pressed }) => [
+                styles.tabItem,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View
+                style={[styles.tabIconWrap, isActive && styles.tabIconWrapActive]}
+              >
+                <NavIcon
+                  name={tab.icon}
+                  size={22}
+                  color={isActive ? colors.brand : colors.textMuted}
+                />
+              </View>
+              <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
+                {tab.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+export function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <Text style={styles.sectionTitle}>{children}</Text>;
 }
 
 export function Title({ children }: { children: React.ReactNode }) {
@@ -156,7 +470,6 @@ export function Btn({
   );
 }
 
-/** Row of equally-weighted big buttons (for yes/no, confirm/cancel). */
 export function BtnRow({ children }: { children: React.ReactNode }) {
   return <View style={styles.btnRow}>{children}</View>;
 }
@@ -170,6 +483,7 @@ export function Input({
   multiline,
   label,
   autoCapitalize = "none",
+  maxLength,
 }: {
   value: string;
   onChangeText: (v: string) => void;
@@ -179,20 +493,22 @@ export function Input({
   multiline?: boolean;
   label?: string;
   autoCapitalize?: "none" | "sentences" | "words";
+  maxLength?: number;
 }) {
   return (
     <View style={{ gap: 6 }}>
-      {label ? <Text style={styles.fieldLabel}>{label.toUpperCase()}</Text> : null}
+      {label ? <Text style={styles.fieldLabel}>{label}</Text> : null}
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#999999"
+        placeholderTextColor={colors.textMuted}
         keyboardType={keyboardType}
         secureTextEntry={secureTextEntry}
         multiline={multiline}
         autoCapitalize={autoCapitalize}
         autoCorrect={false}
+        maxLength={maxLength}
         style={[styles.input, multiline && styles.inputMultiline]}
       />
     </View>
@@ -247,7 +563,7 @@ export function Badge({
           tone === "muted" && styles.badgeTextMuted,
         ]}
       >
-        {label.toUpperCase()}
+        {label}
       </Text>
     </View>
   );
@@ -256,7 +572,7 @@ export function Badge({
 export function Loading({ label = "Loading" }: { label?: string }) {
   return (
     <View style={{ padding: 40, alignItems: "center", gap: 12 }}>
-      <ActivityIndicator color="#000000" size="large" />
+      <ActivityIndicator color={colors.brand} size="large" />
       <Text style={styles.subtitle}>{label}</Text>
     </View>
   );
@@ -264,8 +580,8 @@ export function Loading({ label = "Loading" }: { label?: string }) {
 
 export function Empty({ text, action }: { text: string; action?: React.ReactNode }) {
   return (
-    <View style={{ padding: 32, alignItems: "center", gap: 16 }}>
-      <Text style={styles.subtitle}>{text}</Text>
+    <View style={{ padding: 32, alignItems: "center", gap: 14 }}>
+      <Text style={[styles.subtitle, { textAlign: "center" }]}>{text}</Text>
       {action}
     </View>
   );
@@ -283,100 +599,339 @@ export const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 54,
-    paddingBottom: 14,
-    paddingHorizontal: 12,
-    backgroundColor: "#000000",
+    paddingTop: 52,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
+    backgroundColor: colors.bg,
   },
   headerTitle: {
     flex: 1,
     textAlign: "center",
-    color: "#FFFFFF",
-    fontSize: 22,
-    fontWeight: "800",
+    color: colors.text,
+    fontSize: 19,
+    fontWeight: "700",
   },
-  headerRight: { minWidth: 56, alignItems: "flex-end" },
-  backBtn: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
-  backText: { color: "#FFFFFF", fontSize: 34, fontWeight: "700", lineHeight: 36 },
-  scroll: { padding: 16, gap: 14, paddingBottom: 40 },
-  scrollFill: { flex: 1, padding: 16, gap: 14 },
-  footer: { padding: 16, gap: 10, borderTopWidth: 2, borderColor: "#000000", backgroundColor: "#FFFFFF" },
-  card: {
-    borderWidth: 2,
-    borderColor: "#000000",
-    padding: 16,
-    gap: 10,
-    backgroundColor: "#FFFFFF",
-  },
-  cardInvert: { backgroundColor: "#000000" },
-  cardMuted: { backgroundColor: colors.surfaceAlt, borderColor: colors.borderSoft },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 1.6,
-    color: "#000000",
-    marginTop: 6,
-  },
-  title: { fontSize: 30, fontWeight: "900", color: "#000000", letterSpacing: -0.5 },
-  subtitle: { fontSize: 17, color: colors.textMuted, lineHeight: 24 },
-  btn: {
-    backgroundColor: "#000000",
-    minHeight: 62,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+  headerRight: { minWidth: 44, alignItems: "flex-end" },
+  circleBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#000000",
   },
-  btnMd: { minHeight: 54, paddingVertical: 12 },
-  btnSm: { minHeight: 44, paddingVertical: 8, paddingHorizontal: 14 },
-  btnOutline: { backgroundColor: "#FFFFFF" },
-  btnGhost: { backgroundColor: "#FFFFFF", borderColor: colors.borderSoft },
-  btnDisabled: { opacity: 0.35 },
-  btnText: { color: "#FFFFFF", fontSize: 20, fontWeight: "800" },
-  btnTextMd: { fontSize: 18 },
-  btnTextSm: { fontSize: 16 },
-  btnTextOutline: { color: "#000000" },
-  btnTextGhost: { color: "#000000" },
-  btnRow: { flexDirection: "row", gap: 10 },
-  pressed: { opacity: 0.55 },
-  fieldLabel: { fontSize: 12, fontWeight: "800", color: "#000000", letterSpacing: 1.2 },
-  input: {
-    borderWidth: 2,
-    borderColor: "#000000",
-    backgroundColor: "#FFFFFF",
-    minHeight: 60,
+  backText: { color: colors.text, fontSize: 28, fontWeight: "600", lineHeight: 30 },
+  scroll: { paddingHorizontal: 20, paddingTop: 12, gap: 16, paddingBottom: 40 },
+  scrollFill: { flex: 1, paddingHorizontal: 20, paddingTop: 12, gap: 16 },
+  footer: {
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    gap: 10,
+    backgroundColor: colors.bg,
+  },
+  card: {
+    borderRadius: radius.card,
+    padding: 20,
+    gap: 12,
+    backgroundColor: colors.surface,
+  },
+  cardInvert: { backgroundColor: colors.brand },
+  cardMuted: { backgroundColor: colors.surfaceAlt },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 4,
+  },
+  sectionHeaderTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  seeAllPill: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+  },
+  seeAllText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  quickCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    paddingVertical: 18,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    justifyContent: "space-around",
+  },
+  quickItem: {
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+  },
+  quickCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.surfaceAlt,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickIcon: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  quickLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  listCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#000000",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
   },
-  inputMultiline: { minHeight: 120, textAlignVertical: "top", fontSize: 16, fontWeight: "400" },
+  listCardHighlight: {
+    borderWidth: 1.5,
+    borderColor: colors.brand,
+  },
+  listIconCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.surfaceAlt,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listIconText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  listTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  listSub: {
+    fontSize: 13,
+    color: colors.textMuted,
+  },
+  listRightTop: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  listRightBottom: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.textMuted,
+  },
+  tabWrap: {
+    backgroundColor: colors.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  tabBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: "center",
+    gap: 3,
+    paddingVertical: 2,
+  },
+  tabIconWrap: {
+    width: 40,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabIconWrapActive: {
+    backgroundColor: colors.brandSoft,
+  },
+  tabLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textMuted,
+  },
+  tabLabelActive: {
+    color: colors.brand,
+    fontWeight: "700",
+  },
+
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.textMuted,
+  },
+  title: { fontSize: font.title, fontWeight: "800", color: colors.text, letterSpacing: -0.4 },
+  subtitle: { fontSize: 15, color: colors.textMuted, lineHeight: 22 },
+  btn: {
+    backgroundColor: colors.brand,
+    minHeight: 56,
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.pill,
+  },
+  btnMd: { minHeight: 48, paddingVertical: 10 },
+  btnSm: { minHeight: 40, paddingVertical: 8, paddingHorizontal: 16 },
+  btnOutline: { backgroundColor: colors.surfaceAlt },
+  btnGhost: { backgroundColor: "transparent" },
+  btnDisabled: { opacity: 0.35 },
+  btnText: { color: colors.onInverse, fontSize: 16, fontWeight: "700" },
+  btnTextMd: { fontSize: 15 },
+  btnTextSm: { fontSize: 14 },
+  btnTextOutline: { color: colors.text },
+  btnTextGhost: { color: colors.textMuted },
+  btnRow: { flexDirection: "row", gap: 10 },
+  pressed: { opacity: 0.65 },
+  fieldLabel: { fontSize: 13, fontWeight: "600", color: colors.textMuted },
+  input: {
+    borderRadius: radius.control,
+    backgroundColor: colors.surface,
+    minHeight: 56,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    fontSize: 17,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  inputMultiline: { minHeight: 100, textAlignVertical: "top", fontSize: 15, fontWeight: "500" },
   row: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 16,
+    paddingVertical: 14,
     gap: 12,
-    borderBottomWidth: 1,
-    borderColor: colors.borderSoft,
   },
   kv: { flexDirection: "row", justifyContent: "space-between", gap: 16, paddingVertical: 4 },
-  kvLabel: { fontSize: 16, color: colors.textMuted, fontWeight: "600" },
-  kvValue: { fontSize: 18, color: "#000000", fontWeight: "800" },
+  kvLabel: { fontSize: 15, color: colors.textMuted, fontWeight: "500" },
+  kvValue: { fontSize: 16, color: colors.text, fontWeight: "700" },
   badge: {
-    borderWidth: 2,
-    borderColor: "#000000",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     alignSelf: "flex-start",
   },
-  badgeInvert: { backgroundColor: "#000000" },
-  badgeMuted: { borderColor: colors.borderSoft },
-  badgeText: { fontSize: 12, fontWeight: "900", color: "#000000", letterSpacing: 0.8 },
-  badgeTextInvert: { color: "#FFFFFF" },
+  badgeInvert: { backgroundColor: colors.brand },
+  badgeMuted: { backgroundColor: colors.surfaceAlt },
+  badgeText: { fontSize: 12, fontWeight: "700", color: colors.text },
+  badgeTextInvert: { color: colors.onInverse },
   badgeTextMuted: { color: colors.textMuted },
-  divider: { height: 2, backgroundColor: "#000000", marginVertical: 4 },
+  divider: { height: 1, backgroundColor: colors.borderSoft, marginVertical: 4 },
+  fabWrap: {
+    position: "absolute",
+    right: 20,
+    // Clears the floating tab bar so the button never overlaps it.
+    bottom: 104,
+  },
+  fab: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  fabText: {
+    color: colors.onInverse,
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  settingsGroup: {
+    gap: 8,
+  },
+  settingsGroupLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: colors.textMuted,
+    paddingHorizontal: 6,
+  },
+  settingsCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  settingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 15,
+  },
+  settingsRowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  settingsRowTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  settingsRowSub: {
+    fontSize: 13,
+    color: colors.textMuted,
+    lineHeight: 18,
+  },
+  settingsRowValue: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.textMuted,
+  },
+  settingsChevron: {
+    fontSize: 24,
+    color: colors.textMuted,
+    marginTop: -2,
+  },
+  statPair: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    gap: 12,
+  },
+  statPairLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  statPairHint: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  statPairValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  statPairValueStrong: {
+    fontSize: 22,
+    color: colors.brand,
+  },
+
 });

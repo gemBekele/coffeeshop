@@ -1,8 +1,10 @@
 import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { StaffRole } from "../api/client";
 
 const KEY_SESSION = "coffeeshop.session";
 const KEY_DEVICE = "coffeeshop.deviceKey";
+const KEY_IDENTIFIER = "coffeeshop.lastIdentifier";
 
 export interface Session {
   accessToken: string;
@@ -32,5 +34,15 @@ export const deviceStore = {
   },
   async clear(): Promise<void> {
     await SecureStore.deleteItemAsync(KEY_DEVICE);
+  },
+};
+
+/** Small non-secret preferences (remembered login identifier). */
+export const prefs = {
+  async getIdentifier(): Promise<string | null> {
+    return AsyncStorage.getItem(KEY_IDENTIFIER);
+  },
+  async setIdentifier(value: string): Promise<void> {
+    await AsyncStorage.setItem(KEY_IDENTIFIER, value);
   },
 };

@@ -1,167 +1,220 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import React, { useCallback, useState } from "react";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import {
-  Badge,
   Btn,
-  Card,
-  Dropdown,
+  colors,
   Empty,
-  Input,
+  ListRowCard,
   Loading,
   Screen,
-  SectionTitle,
-  Subtitle,
 } from "../../ui/kit";
 import { useApp } from "../../state/AppContext";
-import { getSocket } from "../../lib/socket";
-import type { Order, Payment, VerifyResult } from "../../api/client";
+import { useLive } from "../../lib/live";
+import type { Order, Payment } from "../../api/client";
 
-export function PaymentsScreen() {
+type Filter = "todo" | "done";
+
+const money = (n: number) =>
+  `ETB ${n.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+const timeOf = (iso: string) =>
+  new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+/**
+ * One place for bank money on a phone: transfers waiting for an action and
+ * settled ones. A single tap opens the one action that applies.
+ */
+export function PaymentsScreen({
+  onBack,
+  onScan,
+}: {
+  onBack?: () => void;
+  onScan?: () => void;
+}) {
   const { api } = useApp();
-  const [unmatched, setUnmatched] = useState<Payment[] | null>(null);
-  const [recent, setRecent] = useState<Payment[]>([]);
+  const [all, setAll] = useState<Payment[] | null>(null);
   const [openOrders, setOpenOrders] = useState<Order[]>([]);
-  const [verifyTxn, setVerifyTxn] = useState("");
-  const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
-  const [selected, setSelected] = useState<Payment | null>(null);
-  const [orderChoice, setOrderChoice] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("todo");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api.unmatchedPayments().then(setUnmatched).catch(() => setUnmatched([]));
-    api.payments().then((r) => setRecent(r.items.slice(0, 10))).catch(() => {});
-    api.orders().then((r) => setOpenOrders(r.items)).catch(() => {});
+    api
+      .payments()
+      .then((r) =>
+        setAll(
+          r.items.filter(
+            (p) =>
+              (p.source ?? "SMS") !== "MANUAL" &&
+              (p.bank ?? "").toUpperCase() !== "CASH",
+          ),
+        ),
+      )
+      .catch(() => setAll([]));
+    api
+      .orderBoard()
+      .then((board) => {
+        const flat: Order[] = [];
+        for (const key of ["OPEN", "CONFIRMED", "PREPARING", "READY", "SERVED"]) {
+          for (const order of board[key] ?? []) flat.push(order);
+        }
+        setOpenOrders(flat);
+      })
+      .catch(() => {});
   }, [api]);
 
-  useEffect(() => {
-    load();
-    const socket = getSocket();
-    socket?.on("payment:received", load);
-    socket?.on("order:updated", load);
-    return () => {
-      socket?.off("payment:received", load);
-      socket?.off("order:updated", load);
-    };
-  }, [load]);
+  useLive(load);
 
-  const verify = async () => {
+  const isTodo = (p: Payment) =>
+    p.confirmed === false || p.status === "UNMATCHED";
+
+  const attach = async (p: Payment, order: Order) => {
     setError(null);
     try {
-      setVerifyResult(await api.verify(verifyTxn.trim()));
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const match = async () => {
-    if (!selected || !orderChoice) return;
-    setError(null);
-    try {
-      await api.matchPayment(selected.id, orderChoice);
-      setSelected(null);
-      setOrderChoice(null);
+      await api.matchPayment(p.id, order.id);
       load();
     } catch (err) {
       setError((err as Error).message);
     }
   };
 
-  const orderOptions = openOrders.map((o) => ({
-    label: `#${o.orderNumber} · ${o.total.toFixed(2)} · ${o.status}`,
-    value: o.id,
-  }));
+  const confirmPickup = async (p: Payment) => {
+    setError(null);
+    try {
+      await api.confirmPayment(p.id);
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const openActions = (p: Payment) => {
+    if (p.status === "UNMATCHED") {
+      const suggested =
+        openOrders.find((o) => Math.abs(o.total - p.amount) < 0.01) ??
+        openOrders[0];
+      if (!suggested) {
+        Alert.alert(money(p.amount), "No open order to attach this to.");
+        return;
+      }
+      Alert.alert(money(p.amount), `Attach to order #${suggested.orderNumber}?`, [
+        { text: "Later", style: "cancel" },
+        { text: "Attach", onPress: () => void attach(p, suggested) },
+      ]);
+      return;
+    }
+    if (p.confirmed === false) {
+      Alert.alert(money(p.amount), "Money was handed over for this transfer.", [
+        { text: "Not yet", style: "cancel" },
+        { text: "Confirm picked up", onPress: () => void confirmPickup(p) },
+      ]);
+      return;
+    }
+  };
+
+  if (all === null) {
+    return (
+      <Screen title="Payments" onBack={onBack}>
+        <Loading />
+      </Screen>
+    );
+  }
+
+  const todo = all.filter(isTodo);
+  const done = all.filter((p) => !isTodo(p));
+  const list = filter === "todo" ? todo : done;
 
   return (
-    <Screen title="Payments">
-      <Card>
-        <SectionTitle>Verify a transaction</SectionTitle>
-        <Input
-          label="Transaction ID"
-          value={verifyTxn}
-          onChangeText={setVerifyTxn}
-          placeholder="TB1234567890"
+    <Screen
+      title="Payments"
+      onBack={onBack}
+      right={
+        onScan ? (
+          <Btn label="Scan" size="sm" variant="outline" onPress={onScan} />
+        ) : undefined
+      }
+    >
+      <View style={styles.chipRow}>
+        {(
+          [
+            { key: "todo", label: `To verify (${todo.length})` },
+            { key: "done", label: `Verified (${done.length})` },
+          ] as Array<{ key: Filter; label: string }>
+        ).map((chip) => {
+          const active = filter === chip.key;
+          return (
+            <Pressable
+              key={chip.key}
+              onPress={() => setFilter(chip.key)}
+              style={[styles.chip, active && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                {chip.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      {list.length === 0 ? (
+        <Empty
+          text={
+            filter === "todo"
+              ? "Nothing waiting. Transfers that need action show up here."
+              : "No verified transfers yet."
+          }
         />
-        <Btn label="Verify" onPress={verify} variant="outline" />
-        {verifyResult ? (
-          <View style={{ gap: 6 }}>
-            <Badge
-              label={verifyResult.found ? "found" : "not found"}
-              tone={verifyResult.found ? "invert" : "muted"}
-            />
-            {verifyResult.order ? (
-              <Subtitle>
-                Order #{verifyResult.order.orderNumber} · {verifyResult.order.status}
-              </Subtitle>
-            ) : null}
-          </View>
-        ) : null}
-      </Card>
-
-      {error ? <Subtitle>{error}</Subtitle> : null}
-
-      <SectionTitle>Unmatched payments</SectionTitle>
-      {unmatched === null ? (
-        <Loading />
-      ) : unmatched.length === 0 ? (
-        <Empty text="No unmatched payments." />
       ) : (
-        unmatched.map((p) => (
-          <Card key={p.id}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={{ fontSize: 24, fontWeight: "900", color: "#000000" }}>
-                {p.amount.toFixed(2)}
-              </Text>
-              <Badge label={p.bank ?? "—"} tone="outline" />
-            </View>
-            <Subtitle>
-              {p.txnId} · {p.sender ?? "unknown"}
-            </Subtitle>
-            {selected?.id === p.id ? (
-              <View style={{ gap: 10 }}>
-                <Dropdown
-                  label="Attach to order"
-                  title="Choose an order"
-                  options={
-                    orderOptions.length > 0
-                      ? orderOptions
-                      : [{ label: "No open orders", value: "none" }]
-                  }
-                  value={orderChoice}
-                  onChange={setOrderChoice}
-                />
-                <Btn label="Attach payment" onPress={match} />
-                <Btn label="Cancel" variant="outline" onPress={() => setSelected(null)} />
-              </View>
-            ) : (
-              <Btn
-                label="Attach to an order…"
-                variant="outline"
-                onPress={() => setSelected(p)}
+        <View style={{ gap: 10 }}>
+          {list.map((p) => {
+            const needsConfirm = p.status !== "UNMATCHED" && p.confirmed === false;
+            return (
+              <ListRowCard
+                key={p.id}
+                icon={needsConfirm || p.status === "UNMATCHED" ? "!" : "✓"}
+                highlight={needsConfirm || p.status === "UNMATCHED"}
+                title={`${money(p.amount)} · ${p.sender ?? p.bank ?? "Transfer"}`}
+                subtitle={`Ref ${p.txnId} · ${timeOf(p.receivedAt)}`}
+                rightTop={
+                  p.status === "UNMATCHED"
+                    ? "Attach"
+                    : needsConfirm
+                      ? "Confirm"
+                      : p.order
+                        ? `#${p.order.orderNumber}`
+                        : "Paid"
+                }
+                rightBottom={
+                  p.status === "UNMATCHED"
+                    ? "Open order"
+                    : needsConfirm
+                      ? "Picked up?"
+                      : "Verified"
+                }
+                onPress={isTodo(p) ? () => openActions(p) : undefined}
               />
-            )}
-          </Card>
-        ))
-      )}
-
-      <SectionTitle>Recent</SectionTitle>
-      {recent.length === 0 ? (
-        <Empty text="No payments yet." />
-      ) : (
-        recent.map((p) => (
-          <Card key={p.id} tone="muted">
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={{ fontSize: 18, fontWeight: "800", color: "#000000" }}>
-                {p.amount.toFixed(2)}
-              </Text>
-              <Badge
-                label={p.status}
-                tone={p.status === "VERIFIED" ? "invert" : "muted"}
-              />
-            </View>
-            <Text style={{ color: "#6B6B6B", fontSize: 14 }}>{p.txnId}</Text>
-          </Card>
-        ))
+            );
+          })}
+        </View>
       )}
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  chipRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+  },
+  chipActive: { backgroundColor: colors.brand },
+  chipText: { fontSize: 13, fontWeight: "600", color: colors.textMuted },
+  chipTextActive: { color: colors.onInverse },
+  error: { fontSize: 13, color: "#B45309" },
+});

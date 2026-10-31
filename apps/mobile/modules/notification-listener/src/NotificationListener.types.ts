@@ -1,3 +1,5 @@
+export type NotificationKind = "SMS" | "NOTIFICATION";
+
 export interface PostedNotification {
   /** Android package that posted the notification (e.g. "et.telebirr"). */
   packageName: string;
@@ -11,6 +13,15 @@ export interface PostedNotification {
   postedAt: number;
   id: number;
   tag: string | null;
+  /** "SMS" when posted by a messaging app, otherwise "NOTIFICATION". */
+  kind: NotificationKind;
+}
+
+export interface InboxSms {
+  id: string;
+  address: string;
+  body: string;
+  date: number;
 }
 
 export interface ListenerState {

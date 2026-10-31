@@ -31,7 +31,7 @@ export function matchTemplates(
         direction: def.direction,
         amount: result.amount,
         txnId: result.txnId,
-        sender: result.sender,
+        sender: result.sender ?? result.senderName,
         senderPhone: result.senderPhone,
       };
     }

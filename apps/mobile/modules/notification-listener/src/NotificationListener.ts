@@ -4,7 +4,11 @@ import {
   requireNativeModule,
   type EventSubscription,
 } from "expo-modules-core";
-import type { ListenerState, PostedNotification } from "./NotificationListener.types";
+import type {
+  InboxSms,
+  ListenerState,
+  PostedNotification,
+} from "./NotificationListener.types";
 
 type NotificationEvents = {
   onNotification: (notification: PostedNotification) => void;
@@ -19,6 +23,8 @@ declare class NativeNotificationModule extends NativeModule {
   isListening(): boolean;
   getBuffered(): PostedNotification[];
   openPermissionSettings(): void;
+  hasSmsPermission(): boolean;
+  readSmsInbox(maxCount: number): Promise<InboxSms[]>;
 }
 
 /**
@@ -55,6 +61,14 @@ export const NotificationListener = {
 
   getBuffered(): PostedNotification[] {
     return native ? native.getBuffered() : [];
+  },
+
+  hasSmsPermission(): boolean {
+    return native ? native.hasSmsPermission() : false;
+  },
+
+  async readSmsInbox(maxCount = 50): Promise<InboxSms[]> {
+    return native ? native.readSmsInbox(maxCount) : [];
   },
 
   addNotificationListener(

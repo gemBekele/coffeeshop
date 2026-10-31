@@ -87,7 +87,7 @@ export const FIELD_TOKENS: Record<FieldName, FieldTokenDef> = {
     label: "Sender phone",
     description: "Phone number of the payer.",
     group: "phone",
-    pattern: "\\+?[0-9][0-9\\s\\-]{6,}[0-9]",
+    pattern: "\\+?[0-9][0-9\\s\\-*]{6,}[0-9]",
   },
   currency: {
     name: "currency",

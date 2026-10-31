@@ -1,0 +1,7 @@
+{
+  "name": "ocr",
+  "version": "0.1.0",
+  "description": "On-device ML Kit text recognition for CoffeeShop payment verification",
+  "main": "index.ts",
+  "private": true
+}

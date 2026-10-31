@@ -34,6 +34,15 @@ export const refreshSchema = z.object({
   refreshToken: z.string().min(10),
 });
 
+export const registerSchema = z.object({
+  shopName: z.string().min(2).max(60),
+  fullName: z.string().min(2).max(120),
+  /** Email or phone number used to sign in. */
+  identifier: z.string().min(5).max(120),
+  pin: pinSchema,
+});
+export type RegisterInput = z.infer<typeof registerSchema>;
+
 // --- Staff ---
 export const createStaffSchema = z.object({
   fullName: z.string().min(2).max(120),
@@ -71,6 +80,7 @@ export const updateShopSchema = z.object({
   currency: z.string().length(3).optional(),
   timezone: z.string().max(64).optional(),
   taxRate: z.number().min(0).max(100).optional(),
+  paymentMaxAmount: z.number().min(0).max(10000000).optional(),
   publicMenuSlug: z
     .string()
     .regex(/^[a-z0-9-]{2,60}$/, "lowercase letters, numbers and dashes")

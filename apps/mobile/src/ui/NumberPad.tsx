@@ -1,15 +1,13 @@
 import React, { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { colors, radius } from "./theme";
 
 export interface NumberPadProps {
   value: string;
   onChange: (next: string) => void;
   maxLength?: number;
-  /** Optional custom key rendered bottom-left (e.g. "00", "+", "."). */
   leftKey?: { label: string; onPress: () => void };
-  /** Hide the leading-zero logic (use raw string). */
   allowDecimal?: boolean;
-  /** Right accent key, usually "Done" / "Next". */
   rightKey?: { label: string; onPress: () => void; disabled?: boolean };
 }
 
@@ -96,13 +94,9 @@ export interface NumberFieldProps {
   placeholder?: string;
   maxLength?: number;
   allowDecimal?: boolean;
-  /** Renders the value big; tap opens nothing (pad is inline). */
   suffix?: string;
 }
 
-/**
- * A field that is always edited with the custom NumberPad below it.
- */
 export function NumberField({
   label,
   value,
@@ -113,7 +107,7 @@ export function NumberField({
   suffix,
 }: NumberFieldProps) {
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: 8 }}>
       {label ? <Text style={styles.fieldLabel}>{label}</Text> : null}
       <View style={styles.fieldBox}>
         <Text style={[styles.fieldValue, !value && styles.fieldPlaceholder]}>
@@ -133,42 +127,39 @@ export function NumberField({
 
 const styles = StyleSheet.create({
   pad: { gap: 10 },
-  grid: { flexDirection: "row", flexWrap: "wrap" },
+  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 10 },
   key: {
-    width: "33.333%",
-    height: 62,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#000000",
-    borderWidth: 2,
-    borderColor: "#000000",
-    margin: -1,
-  },
-  keySpecial: { backgroundColor: "#FFFFFF" },
-  keyPressed: { opacity: 0.55 },
-  keyText: { color: "#FFFFFF", fontSize: 26, fontWeight: "700" },
-  keySpecialText: { color: "#000000" },
-  done: {
+    width: "30%",
     height: 60,
-    backgroundColor: "#000000",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#000000",
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.pill,
   },
-  doneText: { color: "#FFFFFF", fontSize: 20, fontWeight: "800" },
-  fieldLabel: { fontSize: 13, fontWeight: "700", color: "#000000", letterSpacing: 1 },
+  keySpecial: { backgroundColor: "transparent" },
+  keyPressed: { opacity: 0.55 },
+  keyText: { color: colors.text, fontSize: 24, fontWeight: "700" },
+  keySpecialText: { color: colors.textMuted, fontSize: 20 },
+  done: {
+    height: 56,
+    backgroundColor: colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.pill,
+  },
+  doneText: { color: colors.onInverse, fontSize: 17, fontWeight: "700" },
+  fieldLabel: { fontSize: 13, fontWeight: "600", color: colors.textMuted },
   fieldBox: {
-    borderWidth: 2,
-    borderColor: "#000000",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderRadius: radius.control,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 62,
+    minHeight: 60,
+    backgroundColor: colors.surfaceAlt,
   },
-  fieldValue: { fontSize: 30, fontWeight: "800", color: "#000000" },
-  fieldPlaceholder: { color: "#AAAAAA" },
-  fieldSuffix: { fontSize: 16, fontWeight: "700", color: "#000000" },
+  fieldValue: { fontSize: 28, fontWeight: "800", color: colors.text },
+  fieldPlaceholder: { color: colors.textMuted },
+  fieldSuffix: { fontSize: 15, fontWeight: "700", color: colors.textMuted },
 });

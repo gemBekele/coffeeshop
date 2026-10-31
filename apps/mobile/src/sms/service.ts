@@ -10,7 +10,7 @@ export interface CaptureEvent {
 
 type Listener = (event: CaptureEvent) => void;
 
-const POLL_MS = 8000;
+const POLL_MS = 2000;
 
 /**
  * Foreground SMS capture for the owner phone.
@@ -48,9 +48,14 @@ class SmsCapture {
   }
 
   async loadTemplates(deviceKey: string, api: Api): Promise<DeviceConfig> {
+    this.api = api;
     const config = await api.deviceConfig(deviceKey);
     this.templates = config.templates;
+    this.processed.clear();
     this.emit("info", `Loaded ${this.templates.length} active template(s)`);
+    if (this.running) {
+      void this.poll();
+    }
     return config;
   }
 
@@ -99,10 +104,10 @@ class SmsCapture {
 
     for (const sms of messages) {
       if (this.processed.has(sms.id)) continue;
-      this.processed.add(sms.id);
 
       const parsed = matchTemplates(this.templates, sms.body);
       if (!parsed) continue;
+      this.processed.add(sms.id);
 
       if (parsed.direction === "DEBIT") continue;
 

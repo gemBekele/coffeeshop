@@ -1,20 +1,24 @@
-import React, { useEffect, useState } from "react";
-import { View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
   Badge,
   Btn,
-  BtnRow,
   Card,
-  Dropdown,
+  colors,
   Input,
+  KeyValue,
   Loading,
+  radius,
   Screen,
-  SectionTitle,
   Subtitle,
 } from "../../ui/kit";
 import { useApp } from "../../state/AppContext";
-import type { TemplateDiagnostics } from "../../api/client";
-import { buildTemplateFromSpans, detectFields, type FieldName } from "@coffeeshop/shared";
+import {
+  buildTemplateFromSpans,
+  detectFields,
+  matchTemplateBest,
+  type FieldName,
+} from "@coffeeshop/shared";
 
 const PROVIDERS = [
   { label: "Telebirr", value: "TELEBIRR" },
@@ -24,10 +28,19 @@ const PROVIDERS = [
   { label: "Other", value: "OTHER" },
 ] as const;
 
-const DIRECTIONS = [
-  { label: "Credit — money in", value: "CREDIT" as const },
-  { label: "Debit — money out", value: "DEBIT" as const },
-];
+function guessProvider(text: string): string {
+  const lower = text.toLowerCase();
+  if (lower.includes("telebirr") || lower.includes("127")) return "TELEBIRR";
+  if (lower.includes("cbe") || lower.includes("commercial bank")) return "CBE_BIRR";
+  if (lower.includes("amole") || lower.includes("dashen")) return "AMOLE";
+  if (lower.includes("awash")) return "AWASH";
+  return "OTHER";
+}
+
+function defaultNameFor(provider: string): string {
+  const found = PROVIDERS.find((p) => p.value === provider);
+  return `${found?.label ?? "Bank"} payment`;
+}
 
 export function TemplateEditorScreen({
   templateId,
@@ -40,17 +53,42 @@ export function TemplateEditorScreen({
   onDone: () => void;
   onPickSms: () => void;
 }) {
-  const { api } = useApp();
+  const { api, syncCapture } = useApp();
   const [loading, setLoading] = useState(!!templateId);
   const [name, setName] = useState("");
   const [provider, setProvider] = useState<string>("TELEBIRR");
-  const [direction, setDirection] = useState<"CREDIT" | "DEBIT">("CREDIT");
-  const [allowlist, setAllowlist] = useState("");
   const [templateBody, setTemplateBody] = useState("");
   const [sampleSms, setSampleSms] = useState(initialSample ?? "");
-  const [diag, setDiag] = useState<TemplateDiagnostics | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const applySample = (sms: string) => {
+    setSampleSms(sms);
+    setError(null);
+    if (!sms.trim()) return;
+    const guessed = guessProvider(sms);
+    setProvider(guessed);
+    if (!name) setName(defaultNameFor(guessed));
+    const spans = detectFields(sms).filter((s) => s.field !== "currency");
+    if (spans.length > 0) {
+      const built = buildTemplateFromSpans(
+        sms,
+        spans.map((s) => ({
+          field: s.field as FieldName,
+          start: s.start,
+          end: s.end,
+        })),
+      );
+      setTemplateBody(built);
+    }
+  };
+
+  useEffect(() => {
+    if (initialSample && !templateId) {
+      applySample(initialSample);
+    }
+  }, [initialSample, templateId]);
 
   useEffect(() => {
     if (!templateId) return;
@@ -59,8 +97,6 @@ export function TemplateEditorScreen({
       .then((t) => {
         setName(t.name);
         setProvider(t.provider);
-        setDirection(t.direction);
-        setAllowlist(t.senderAllowlist.join(", "));
         setTemplateBody(t.templateBody);
         setSampleSms(t.sampleSms ?? "");
       })
@@ -68,76 +104,65 @@ export function TemplateEditorScreen({
       .finally(() => setLoading(false));
   }, [api, templateId]);
 
-  const autoFill = () => {
-    setError(null);
-    if (!sampleSms.trim()) {
-      setError("Paste a sample SMS or pick one from your phone first.");
-      return;
-    }
-    const spans = detectFields(sampleSms);
-    if (spans.length === 0) {
-      setError("Could not detect any fields in that SMS.");
-      return;
-    }
-    setTemplateBody(
-      buildTemplateFromSpans(
-        sampleSms,
-        spans.map((s) => ({ field: s.field as FieldName, start: s.start, end: s.end })),
-      ),
-    );
-    setMessage(`Detected ${spans.length} field(s). Test it below.`);
-  };
-
-  const runTest = async () => {
-    setError(null);
+  const preview = useMemo(() => {
+    if (!templateBody.trim() || !sampleSms.trim()) return null;
     try {
-      const result = await api.testTemplate(templateBody, sampleSms);
-      setDiag(result);
-      setMessage(
-        result.extraction?.matched
-          ? `Matched · amount=${result.extraction.amount ?? "?"} · txn=${result.extraction.txnId ?? "—"}`
-          : "Template did not match the sample SMS.",
-      );
-    } catch (err) {
-      setError((err as Error).message);
+      return matchTemplateBest(templateBody, sampleSms);
+    } catch {
+      return null;
     }
-  };
+  }, [templateBody, sampleSms]);
 
-  const save = async (activate: boolean) => {
+  const saveAndActivate = async () => {
     setError(null);
-    setMessage(null);
-    if (!templateBody.trim()) {
-      setError("Template body is empty — use Auto-detect first.");
+    let bodyToSave = templateBody.trim();
+    if (!bodyToSave && sampleSms.trim()) {
+      const spans = detectFields(sampleSms);
+      if (spans.length > 0) {
+        bodyToSave = buildTemplateFromSpans(
+          sampleSms,
+          spans.map((s) => ({
+            field: s.field as FieldName,
+            start: s.start,
+            end: s.end,
+          })),
+        );
+        setTemplateBody(bodyToSave);
+      }
+    }
+    if (!bodyToSave) {
+      setError("Pick a payment message first so we can detect the format.");
       return;
     }
-    const payload = {
-      name: name || "Untitled template",
-      provider,
-      direction,
-      senderAllowlist: allowlist
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      templateBody,
-      sampleSms: sampleSms || undefined,
-    };
+    setBusy(true);
     try {
+      const payload = {
+        name: name.trim() || defaultNameFor(provider),
+        provider,
+        direction: "CREDIT" as const,
+        senderAllowlist: [],
+        templateBody: bodyToSave,
+        sampleSms: sampleSms || undefined,
+      };
       if (templateId) {
         await api.updateTemplate(templateId, payload);
-        if (activate) await api.activateTemplate(templateId);
+        await api.activateTemplate(templateId);
       } else {
         const created = await api.createTemplate(payload);
-        if (activate) await api.activateTemplate(created.id);
+        await api.activateTemplate(created.id);
       }
+      await syncCapture();
       onDone();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
 
   if (loading) {
     return (
-      <Screen title="Template">
+      <Screen title="Payment rule" onBack={onDone}>
         <Loading />
       </Screen>
     );
@@ -145,98 +170,195 @@ export function TemplateEditorScreen({
 
   return (
     <Screen
-      title={templateId ? "Edit template" : "New template"}
+      title={templateId ? "Payment rule" : "New payment rule"}
       onBack={onDone}
       footer={
-        <>
-          <BtnRow>
-            <Btn
-              label="Save draft"
-              variant="outline"
-              onPress={() => save(false)}
-              size="md"
-            />
-            <Btn label="Save & activate" onPress={() => save(true)} size="md" />
-          </BtnRow>
-        </>
+        <Btn
+          label={busy ? "Activating…" : "Activate rule"}
+          onPress={saveAndActivate}
+          disabled={busy}
+        />
       }
     >
-      <Input
-        label="Name"
-        value={name}
-        onChangeText={setName}
-        placeholder="Telebirr received"
-      />
-
-      <Dropdown
-        label="Provider"
-        title="Choose provider"
-        options={PROVIDERS.map((p) => ({ label: p.label, value: p.value }))}
-        value={provider}
-        onChange={setProvider}
-      />
-
-      <Dropdown
-        label="Direction"
-        title="Choose direction"
-        options={DIRECTIONS}
-        value={direction}
-        onChange={setDirection}
-      />
-
-      <Input
-        label="Sender allowlist"
-        value={allowlist}
-        onChangeText={setAllowlist}
-        placeholder="127, Telebirr"
-      />
-
       <Card>
-        <SectionTitle>Sample SMS</SectionTitle>
-        <Subtitle>
-          Pick a real message from this phone, or paste one below.
-        </Subtitle>
-        <Btn label="📱 Pick SMS from phone" onPress={onPickSms} variant="outline" />
-        <Input
-          value={sampleSms}
-          onChangeText={setSampleSms}
-          placeholder="Paste a payment SMS here"
-          multiline
-        />
-        <Btn label="Auto-detect fields → template" onPress={autoFill} />
+        <View style={styles.rowBetween}>
+          <Text style={styles.cardHeading}>Sample message</Text>
+          <Pressable onPress={onPickSms} style={styles.pickPill}>
+            <Text style={styles.pickPillText}>
+              {sampleSms ? "Pick another" : "Pick from phone"}
+            </Text>
+          </Pressable>
+        </View>
+        {sampleSms ? (
+          <Text style={styles.sampleBox} numberOfLines={4}>
+            {sampleSms}
+          </Text>
+        ) : (
+          <Btn
+            label="Pick a message from phone"
+            variant="outline"
+            onPress={onPickSms}
+          />
+        )}
       </Card>
 
-      <Card>
-        <SectionTitle>Template body</SectionTitle>
-        <Input
-          value={templateBody}
-          onChangeText={setTemplateBody}
-          placeholder="You have received ETB {amount} from {sender}. ID {txnId}"
-          multiline
-        />
-        {diag ? (
-          <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-              <Badge label={`${diag.fields.length} fields`} tone="invert" />
-              <Badge
-                label={diag.hasAmount ? "has amount" : "no amount"}
-                tone={diag.hasAmount ? "outline" : "muted"}
-              />
-              <Badge
-                label={diag.extraction?.matched ? "matches sample" : "no match"}
-                tone={diag.extraction?.matched ? "invert" : "muted"}
-              />
-            </View>
-            {diag.warnings.map((w, i) => (
-              <Subtitle key={i}>{w}</Subtitle>
-            ))}
+      <View style={styles.chipRow}>
+        {PROVIDERS.map((p) => {
+          const active = provider === p.value;
+          return (
+            <Pressable
+              key={p.value}
+              onPress={() => {
+                setProvider(p.value);
+                if (!templateId) setName(defaultNameFor(p.value));
+              }}
+              style={[styles.chip, active && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                {p.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {preview && preview.matched ? (
+        <Card>
+          <View style={styles.rowBetween}>
+            <Text style={styles.cardHeading}>Detected automatically</Text>
+            <Badge label="Ready" tone="invert" />
           </View>
-        ) : null}
-        <Btn label="Test against sample" onPress={runTest} variant="outline" />
-      </Card>
+          <KeyValue
+            label="Amount"
+            value={
+              preview.amount !== undefined
+                ? `ETB ${preview.amount.toFixed(2)}`
+                : "—"
+            }
+          />
+          <KeyValue label="Transaction ID" value={preview.txnId ?? "—"} />
+          {preview.sender || preview.senderName || preview.senderPhone ? (
+            <KeyValue
+              label="Sender"
+              value={
+                preview.sender ??
+                preview.senderName ??
+                preview.senderPhone ??
+                "—"
+              }
+            />
+          ) : null}
+        </Card>
+      ) : sampleSms ? (
+        <Card tone="muted">
+          <Subtitle>
+            Could not auto-detect an amount in this message. Tap Customize below to mark {"{amount}"} and {"{txnId}"}.
+          </Subtitle>
+        </Card>
+      ) : null}
 
-      {message ? <Subtitle>{message}</Subtitle> : null}
-      {error ? <Subtitle>{error}</Subtitle> : null}
+      <Pressable
+        onPress={() => setShowAdvanced((v) => !v)}
+        style={styles.advancedToggle}
+      >
+        <Text style={styles.advancedText}>
+          {showAdvanced ? "Hide pattern details ▲" : "Customize pattern ▼"}
+        </Text>
+      </Pressable>
+
+      {showAdvanced ? (
+        <Card>
+          <Input
+            label="Rule name"
+            value={name}
+            onChangeText={setName}
+            placeholder="Telebirr payment"
+          />
+          <Input
+            label="Message pattern"
+            value={templateBody}
+            onChangeText={setTemplateBody}
+            placeholder="You have received ETB {amount} from {sender}. Txn {txnId}"
+            multiline
+          />
+          <Input
+            label="Or paste sample message"
+            value={sampleSms}
+            onChangeText={applySample}
+            placeholder="Paste SMS text here"
+            multiline
+          />
+        </Card>
+      ) : null}
+
+      {error ? (
+        <Card tone="muted">
+          <Subtitle>{error}</Subtitle>
+        </Card>
+      ) : null}
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  rowBetween: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  cardHeading: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  pickPill: {
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+  },
+  pickPillText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  sampleBox: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textMuted,
+    backgroundColor: colors.surfaceAlt,
+    padding: 14,
+    borderRadius: radius.control,
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  chip: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+  },
+  chipActive: {
+    backgroundColor: colors.brand,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textMuted,
+  },
+  chipTextActive: {
+    color: colors.onInverse,
+  },
+  advancedToggle: {
+    alignSelf: "center",
+    paddingVertical: 6,
+  },
+  advancedText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.textMuted,
+  },
+});

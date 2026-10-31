@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { colors, radius } from "./theme";
 
 export interface Option<T = string> {
   label: string;
@@ -20,15 +21,9 @@ export interface DropdownProps<T = string> {
   value: T | null | undefined;
   onChange: (value: T) => void;
   placeholder?: string;
-  /** Renders a compact value; default shows label or placeholder. */
   title?: string;
 }
 
-/**
- * Big, thumb-friendly dropdown. Tapping opens a full-screen black sheet with
- * large options. Prefer this over free-text forms wherever the value set is
- * known.
- */
 export function Dropdown<T = string>({
   label,
   options,
@@ -69,7 +64,7 @@ export function Dropdown<T = string>({
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>{title ?? label ?? placeholder}</Text>
             <Pressable onPress={() => setOpen(false)} hitSlop={12}>
-              <Text style={styles.close}>Close</Text>
+              <Text style={styles.close}>Done</Text>
             </Pressable>
           </View>
           <FlatList
@@ -110,56 +105,56 @@ export function Dropdown<T = string>({
 
 const styles = StyleSheet.create({
   trigger: {
-    borderWidth: 2,
-    borderColor: "#000000",
-    paddingHorizontal: 16,
+    borderRadius: radius.control,
+    paddingHorizontal: 18,
     paddingVertical: 14,
-    minHeight: 60,
+    minHeight: 58,
     justifyContent: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     gap: 2,
   },
   triggerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  label: { fontSize: 12, fontWeight: "800", color: "#000000", letterSpacing: 1.2 },
-  value: { fontSize: 20, fontWeight: "800", color: "#000000" },
-  placeholder: { fontSize: 20, fontWeight: "700", color: "#999999" },
-  chevron: { fontSize: 20, fontWeight: "800", color: "#000000" },
-  hint: { fontSize: 12, color: "#666666" },
-  pressed: { opacity: 0.6 },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)" },
+  label: { fontSize: 12, fontWeight: "600", color: colors.textMuted },
+  value: { fontSize: 17, fontWeight: "700", color: colors.text },
+  placeholder: { fontSize: 17, fontWeight: "600", color: colors.textMuted },
+  chevron: { fontSize: 18, fontWeight: "700", color: colors.textMuted },
+  hint: { fontSize: 12, color: colors.textMuted },
+  pressed: { opacity: 0.65 },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15,23,42,0.45)" },
   sheet: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    maxHeight: "82%",
-    backgroundColor: "#FFFFFF",
-    borderTopWidth: 3,
-    borderColor: "#000000",
+    maxHeight: "78%",
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.card,
+    borderTopRightRadius: radius.card,
+    paddingBottom: 20,
+    overflow: "hidden",
   },
   sheetHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
+    paddingHorizontal: 22,
     paddingVertical: 18,
-    borderBottomWidth: 2,
-    borderColor: "#000000",
-    backgroundColor: "#000000",
+    borderBottomWidth: 1,
+    borderColor: colors.borderSoft,
   },
-  sheetTitle: { color: "#FFFFFF", fontSize: 20, fontWeight: "800", flex: 1 },
-  close: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
+  sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", flex: 1 },
+  close: { color: colors.text, fontSize: 15, fontWeight: "700" },
   option: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingHorizontal: 22,
+    paddingVertical: 18,
     borderBottomWidth: 1,
-    borderColor: "#E5E5E5",
+    borderColor: colors.borderSoft,
   },
-  optionActive: { backgroundColor: "#000000" },
-  optionLabel: { fontSize: 20, fontWeight: "700", color: "#000000" },
-  optionLabelActive: { color: "#FFFFFF" },
-  optionHint: { fontSize: 13, color: "#666666" },
-  check: { fontSize: 22, fontWeight: "900", color: "#000000", paddingLeft: 12 },
+  optionActive: { backgroundColor: colors.surfaceAlt },
+  optionLabel: { fontSize: 17, fontWeight: "600", color: colors.text },
+  optionLabelActive: { fontWeight: "800", color: colors.text },
+  optionHint: { fontSize: 13, color: colors.textMuted },
+  check: { fontSize: 18, fontWeight: "900", color: colors.text, paddingLeft: 12 },
 });

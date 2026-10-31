@@ -19,6 +19,10 @@ const approveSchema = z.object({
   token: z.string().min(10),
 });
 
+const claimSchema = z.object({
+  token: z.string().min(10),
+});
+
 const PAIRING_TTL_MINUTES = 10;
 
 function randomCode(len = 6): string {
@@ -148,6 +152,86 @@ router.post(
         staffId: pairing.staff.id,
         staffName: pairing.staff.fullName,
         approved: true,
+      }),
+    );
+  }),
+);
+
+/**
+ * One-shot join: the employee scans the QR the owner shows in their settings.
+ * Claiming it hands this device a session immediately — no code entry, no
+ * approval step.
+ */
+router.post(
+  "/claim",
+  validate(claimSchema),
+  asyncHandler(async (req, res) => {
+    const { token } = req.body as { token: string };
+
+    const pairing = await prisma.staffPairing.findUnique({
+      where: { token },
+      include: {
+        staff: {
+          select: {
+            id: true,
+            fullName: true,
+            role: true,
+            shopId: true,
+            isActive: true,
+            shop: { select: { name: true } },
+          },
+        },
+      },
+    });
+    if (!pairing) throw new AppError(404, "This QR code is not valid");
+
+    if (pairing.status === "APPROVED") {
+      throw new AppError(409, "This QR was already used on another phone");
+    }
+    if (pairing.status !== "PENDING" || isExpired(pairing)) {
+      throw new AppError(410, "This QR expired — ask the owner to show a fresh one");
+    }
+    if (!pairing.staff.isActive) {
+      throw new AppError(403, "This account is disabled. Ask the owner.");
+    }
+
+    await prisma.staffPairing.update({
+      where: { id: pairing.id },
+      data: { status: "APPROVED", approvedAt: new Date() },
+    });
+
+    recordAudit({
+      shopId: pairing.shopId,
+      entity: "Staff",
+      entityId: pairing.staffId,
+      action: "pairing.claim",
+      metadata: { pairingId: pairing.id },
+      ip: req.ip,
+    });
+    emitToShop(pairing.shopId, "pairing:approved", {
+      pairingId: pairing.id,
+      staffName: pairing.staff.fullName,
+    });
+
+    const base = {
+      sub: pairing.staff.id,
+      role: pairing.staff.role as never,
+      shopId: pairing.staff.shopId,
+    };
+    const accessToken = signAccessToken(base);
+    const refreshToken = await issueRefreshToken(base);
+
+    res.json(
+      ok({
+        accessToken,
+        refreshToken,
+        shopName: pairing.staff.shop.name,
+        staff: {
+          id: pairing.staff.id,
+          fullName: pairing.staff.fullName,
+          role: pairing.staff.role,
+          shopId: pairing.staff.shopId,
+        },
       }),
     );
   }),

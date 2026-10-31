@@ -74,7 +74,7 @@ router.get(
 
 router.post(
   "/",
-  requireRole("OWNER", "MANAGER"),
+  // Any signed-in staff phone can register itself to capture shop SMS.
   validate(registerDeviceSchema),
   asyncHandler(async (req, res) => {
     const { label, role, platform } = req.body as {

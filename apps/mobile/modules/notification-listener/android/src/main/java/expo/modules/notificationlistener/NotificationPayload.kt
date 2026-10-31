@@ -10,6 +10,7 @@ data class NotificationPayload(
   val postedAt: Long,
   val id: Int,
   val tag: String?,
+  val kind: String,
 ) {
   fun toMap(): Map<String, Any?> =
     mapOf(
@@ -21,5 +22,6 @@ data class NotificationPayload(
       "postedAt" to postedAt,
       "id" to id,
       "tag" to tag,
+      "kind" to kind,
     )
 }

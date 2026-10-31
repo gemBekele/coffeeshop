@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { Router } from "express";
 import { createStaffSchema, updateStaffSchema } from "@coffeeshop/shared";
 import { prisma } from "../../lib/prisma.js";
@@ -9,6 +10,34 @@ import { recordAudit } from "../../lib/audit.js";
 
 const router = Router();
 router.use(requireAuth);
+
+/** How long a join QR stays scannable. The owner can always re-show it. */
+const INVITE_TTL_MINUTES = 60;
+
+function randomCode(len = 6): string {
+  return crypto.randomBytes(len).toString("hex").toUpperCase();
+}
+
+/**
+ * A fresh PENDING pairing row seeds the single-step join: the employee scans
+ * the QR containing `token` and /api/pairing/claim signs them in.
+ */
+async function createInvite(staffId: string, shopId: string) {
+  await prisma.staffPairing.updateMany({
+    where: { staffId, status: "PENDING" },
+    data: { status: "EXPIRED" },
+  });
+  const pairing = await prisma.staffPairing.create({
+    data: {
+      shopId,
+      staffId,
+      code: randomCode(),
+      token: crypto.randomBytes(24).toString("base64url"),
+      expiresAt: new Date(Date.now() + INVITE_TTL_MINUTES * 60 * 1000),
+    },
+  });
+  return { token: pairing.token, code: pairing.code, expiresAt: pairing.expiresAt };
+}
 
 async function generateEmployeeCode(): Promise<string> {
   for (let attempt = 0; attempt < 10; attempt++) {
@@ -110,7 +139,26 @@ router.post(
       ip: req.ip,
     });
 
-    res.status(201).json(ok(created));
+    // New accounts start activatable: the response carries the join QR payload.
+    const invite = await createInvite(created.id, req.staff!.shopId);
+
+    res.status(201).json(ok({ ...created, invite }));
+  }),
+);
+
+/** Re-show (or regenerate) the join QR for an existing staff member. */
+router.post(
+  "/:id/invite",
+  requireRole("OWNER", "MANAGER"),
+  asyncHandler(async (req, res) => {
+    const target = await prisma.staff.findFirst({
+      where: { id: String(req.params.id), shopId: req.staff!.shopId },
+    });
+    if (!target) throw new AppError(404, "Staff not found");
+    if (target.role === "OWNER") {
+      throw new AppError(400, "Owner accounts sign in with a PIN");
+    }
+    res.json(ok(await createInvite(target.id, req.staff!.shopId)));
   }),
 );
 

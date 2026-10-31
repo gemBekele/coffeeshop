@@ -11,9 +11,14 @@ router.use(requireAuth);
 
 function serializeShop(shop: {
   taxRate: unknown;
+  paymentMaxAmount: unknown;
   [key: string]: unknown;
 }) {
-  return { ...shop, taxRate: Number(shop.taxRate) };
+  return {
+    ...shop,
+    taxRate: Number(shop.taxRate),
+    paymentMaxAmount: Number(shop.paymentMaxAmount),
+  };
 }
 
 router.get(

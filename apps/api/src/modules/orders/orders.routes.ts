@@ -245,6 +245,124 @@ router.post(
   }),
 );
 
+router.post(
+  "/quick-sale",
+  asyncHandler(async (req, res) => {
+    const { productId, quantity } = req.body as {
+      productId?: string;
+      quantity?: number;
+    };
+    if (!productId) throw new AppError(400, "productId is required");
+    const qty = Math.max(1, Math.min(100, Math.floor(Number(quantity ?? 1)) || 1));
+
+    const shop = await prisma.shop.findUniqueOrThrow({
+      where: { id: req.staff!.shopId },
+    });
+    const product = await prisma.product.findFirst({
+      where: { id: productId, shopId: req.staff!.shopId, isActive: true },
+    });
+    if (!product) throw new AppError(400, "Product not found or inactive");
+
+    const unitPrice = Number(product.price);
+    const subtotal = Math.round(unitPrice * qty * 100) / 100;
+    const tax = Math.round(subtotal * (Number(shop.taxRate) / 100) * 100) / 100;
+    const total = Math.round((subtotal + tax) * 100) / 100;
+
+    const openShift = await prisma.shift.findFirst({
+      where: { staffId: req.staff!.id, status: "OPEN" },
+      select: { id: true },
+    });
+
+    let created;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        created = await prisma.$transaction(async (tx) => {
+          const last = await tx.order.findFirst({
+            where: { shopId: req.staff!.shopId },
+            orderBy: { orderNumber: "desc" },
+            select: { orderNumber: true },
+          });
+          const orderNumber = (last?.orderNumber ?? 0) + 1;
+          return tx.order.create({
+            data: {
+              shopId: req.staff!.shopId,
+              orderNumber,
+              type: "TAKEAWAY",
+              status: "PAID",
+              subtotal,
+              tax,
+              total,
+              paidAt: new Date(),
+              shiftId: openShift?.id ?? null,
+              createdById: req.staff!.id,
+              items: {
+                create: {
+                  productId: product.id,
+                  nameSnapshot: product.name,
+                  unitPrice,
+                  quantity: qty,
+                  lineTotal: subtotal,
+                },
+              },
+              statusEvents: {
+                create: [
+                  { status: "OPEN", createdById: req.staff!.id },
+                  {
+                    status: "PAID",
+                    note: "Quick sale",
+                    createdById: req.staff!.id,
+                  },
+                ],
+              },
+            },
+            include: orderInclude,
+          });
+        });
+        break;
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code === "P2002" && attempt < 4) continue;
+        throw err;
+      }
+    }
+
+    await prisma.payment.create({
+      data: {
+        shopId: req.staff!.shopId,
+        orderId: created!.id,
+        txnId: `SALE-${created!.orderNumber}-${Date.now()}`,
+        amount: total,
+        currency: shop.currency,
+        bank: "CASH",
+        source: "MANUAL",
+        status: "VERIFIED",
+        direction: "CREDIT",
+        rawSms: "Quick sale at POS",
+        verifiedAt: new Date(),
+        matchedAt: new Date(),
+      },
+    });
+
+    await consumeRecipeForOrder({
+      shopId: req.staff!.shopId,
+      orderId: created!.id,
+      createdById: req.staff!.id,
+    });
+
+    emitToShop(req.staff!.shopId, "order:updated", serializeDecimals(created));
+    recordAudit({
+      shopId: req.staff!.shopId,
+      staffId: req.staff!.id,
+      action: "order.quickSale",
+      entity: "Order",
+      entityId: created!.id,
+      ip: req.ip,
+    });
+
+    res.status(201).json(ok(serializeDecimals(created)));
+  }),
+);
+
 router.patch(
   "/:id",
   validate(updateOrderSchema),

@@ -52,13 +52,32 @@ export async function apiRequest<T>(
 }
 
 /** Authenticated API bound to a token getter (read fresh each call). */
-export function createApi(getToken: () => string | null, getDeviceKey: () => string | null) {
-  const req = <T>(path: string, options: RequestOptions = {}) =>
-    apiRequest<T>(path, {
-      ...options,
-      token: options.token ?? getToken() ?? undefined,
-      deviceKey: options.deviceKey ?? getDeviceKey() ?? undefined,
-    });
+export function createApi(
+  getToken: () => string | null,
+  getDeviceKey: () => string | null,
+  refreshAccessToken?: () => Promise<string | null>,
+) {
+  const req = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
+    try {
+      return await apiRequest<T>(path, {
+        ...options,
+        token: options.token ?? getToken() ?? undefined,
+        deviceKey: options.deviceKey ?? getDeviceKey() ?? undefined,
+      });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401 && refreshAccessToken) {
+        const fresh = await refreshAccessToken();
+        if (fresh) {
+          return apiRequest<T>(path, {
+            ...options,
+            token: fresh,
+            deviceKey: options.deviceKey ?? getDeviceKey() ?? undefined,
+          });
+        }
+      }
+      throw err;
+    }
+  };
 
   return {
     // auth
@@ -67,6 +86,17 @@ export function createApi(getToken: () => string | null, getDeviceKey: () => str
         method: "POST",
         body: { identifier, pin, password },
       }),
+    register: (body: {
+      shopName: string;
+      fullName: string;
+      identifier: string;
+      pin: string;
+    }) =>
+      apiRequest<
+        LoginResult & {
+          shop?: { id: string; name: string; currency: string; publicMenuSlug: string };
+        }
+      >("/api/auth/register", { method: "POST", body }),
     me: () => req<MeResult>("/api/auth/me"),
 
     // catalog
@@ -74,6 +104,10 @@ export function createApi(getToken: () => string | null, getDeviceKey: () => str
     products: () => req<Product[]>("/api/catalog/products"),
     createProduct: (body: unknown) =>
       req<Product>("/api/catalog/products", { method: "POST", body }),
+    deleteProduct: (id: string) =>
+      req<{ archived: boolean }>(`/api/catalog/products/${id}`, {
+        method: "DELETE",
+      }),
     updateProduct: (id: string, body: unknown) =>
       req<Product>(`/api/catalog/products/${id}`, { method: "PATCH", body }),
 
@@ -94,12 +128,28 @@ export function createApi(getToken: () => string | null, getDeviceKey: () => str
       req<Order>(`/api/orders/${id}/status`, { method: "PATCH", body: { status, note } }),
     payCash: (id: string) =>
       req<Order>(`/api/orders/${id}/pay-cash`, { method: "POST" }),
+    quickSale: (productId: string, quantity = 1) =>
+      req<Order>("/api/orders/quick-sale", {
+        method: "POST",
+        body: { productId, quantity },
+      }),
 
     // payments
     payments: () => req<{ items: Payment[] }>("/api/payments"),
     unmatchedPayments: () => req<Payment[]>("/api/payments/unmatched"),
     verify: (txnId: string) =>
       req<VerifyResult>("/api/payments/verify", { method: "POST", body: { txnId } }),
+    scanPayment: (body: {
+      txnId?: string;
+      amount?: number;
+      sender?: string;
+      rawText?: string;
+    }) =>
+      req<ScanResult>("/api/payments/scan", { method: "POST", body }),
+    scans: () => req<PaymentScan[]>("/api/payments/scans"),
+    pendingPayments: () => req<Payment[]>("/api/payments/pending"),
+    confirmPayment: (id: string) =>
+      req<Payment>(`/api/payments/${id}/confirm`, { method: "POST" }),
     matchPayment: (id: string, orderId: string) =>
       req(`/api/payments/${id}/match`, { method: "POST", body: { orderId } }),
     unmatchPayment: (id: string) =>
@@ -136,8 +186,16 @@ export function createApi(getToken: () => string | null, getDeviceKey: () => str
     deviceConfig: (deviceKey: string) =>
       apiRequest<DeviceConfig>("/api/devices/me/config", { deviceKey }),
 
+    // settings
+    settings: () => req<ShopSettings>("/api/settings"),
+    updateSettings: (body: Record<string, unknown>) =>
+      req<ShopSettings>("/api/settings", { method: "PATCH", body }),
+
     // reports
     reportSummary: () => req<ReportSummary>("/api/reports/summary"),
+    dailyReport: () => req<DailyReport>("/api/reports/daily"),
+    dayClose: () => req<DayClose>("/api/reports/day-close"),
+    closeDay: () => req<DayClose>("/api/reports/day-close", { method: "POST", body: {} }),
     reportTopProducts: () =>
       req<Array<{ name: string; quantity: number; revenue: number }>>(
         "/api/reports/top-products",
@@ -146,6 +204,12 @@ export function createApi(getToken: () => string | null, getDeviceKey: () => str
 
     // staff
     staff: () => req<Staff[]>("/api/staff"),
+    createStaff: (body: { fullName: string; role: StaffRole; phone?: string }) =>
+      req<Staff & { invite?: StaffInvite }>("/api/staff", { method: "POST", body }),
+    updateStaff: (id: string, body: Record<string, unknown>) =>
+      req<Staff>(`/api/staff/${id}`, { method: "PATCH", body }),
+    staffInvite: (id: string) =>
+      req<StaffInvite>(`/api/staff/${id}/invite`, { method: "POST", body: {} }),
 
     // sms ingest
     ingestSms: (body: unknown) =>
@@ -169,6 +233,11 @@ export function createApi(getToken: () => string | null, getDeviceKey: () => str
     pairingStatus: (token: string) =>
       apiRequest<PairingStatus>(`/api/pairing/status?token=${token}`),
     pairingList: () => req<PairingRow[]>("/api/pairing"),
+    pairingClaim: (token: string) =>
+      apiRequest<ClaimResult>("/api/pairing/claim", {
+        method: "POST",
+        body: { token },
+      }),
   };
 }
 
@@ -208,6 +277,20 @@ export interface PairingRow {
   status: string;
   createdAt: string;
   staff: { fullName: string; role: string };
+}
+
+export interface StaffInvite {
+  token: string;
+  code?: string;
+  expiresAt: string;
+}
+
+export interface ClaimResult {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn?: number;
+  shopName?: string;
+  staff: { id: string; fullName: string; role: StaffRole; shopId: string };
 }
 
 export type Api = ReturnType<typeof createApi>;
@@ -280,6 +363,24 @@ export interface Order {
   createdAt: string;
 }
 
+export interface DayClosePendingItem {
+  id: string;
+  amount: number;
+  sender: string | null;
+  txnId: string;
+  receivedAt: string;
+}
+
+export interface DayClose {
+  date: string;
+  cash: { count: number; amount: number };
+  transfers: { count: number; amount: number };
+  pending: { count: number; amount: number; items: DayClosePendingItem[] };
+  total: number;
+  paidOrders: number;
+  closedAt: string | null;
+}
+
 export interface Payment {
   id: string;
   txnId: string;
@@ -287,8 +388,16 @@ export interface Payment {
   sender: string | null;
   bank: string | null;
   status: string;
+  confirmed: boolean;
   orderId: string | null;
   receivedAt: string;
+  source?: string | null;
+  order?: {
+    id: string;
+    orderNumber: number;
+    status: string;
+    total: number;
+  } | null;
 }
 
 export interface VerifyResult {
@@ -296,6 +405,41 @@ export interface VerifyResult {
   source: string | null;
   payment?: Payment;
   order?: Partial<Order> | null;
+}
+
+export interface VerifyScanResult {
+  verified: boolean;
+  method: "txnId" | "amount" | "none";
+  payment: Payment | null;
+  order: Partial<Order> | null;
+}
+
+export interface PaymentScan {
+  id: string;
+  txnId: string | null;
+  amount: number | null;
+  sender: string | null;
+  rawText: string;
+  status: "PENDING" | "MATCHED";
+  paymentId: string | null;
+  createdAt: string;
+  matchedAt: string | null;
+}
+
+export interface ScanResult {
+  status: "PENDING" | "MATCHED";
+  scan: PaymentScan;
+  payment?: Payment | null;
+  order?: Partial<Order> | null;
+}
+
+export interface ShopSettings {
+  id: string;
+  name: string;
+  currency: string;
+  taxRate: number;
+  paymentMaxAmount: number;
+  publicMenuSlug: string;
 }
 
 export interface UnmatchedSms {
@@ -360,6 +504,21 @@ export interface DeviceConfig {
   device: { id: string; shopId: string; role: string; label: string };
   shop: { id: string; name: string; currency: string; timezone: string };
   templates: DeviceTemplate[];
+}
+
+export interface DailyItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  revenue: number;
+}
+
+export interface DailyReport {
+  date: string;
+  totalSales: number;
+  totalItems: number;
+  orderCount: number;
+  items: DailyItem[];
 }
 
 export interface ReportSummary {

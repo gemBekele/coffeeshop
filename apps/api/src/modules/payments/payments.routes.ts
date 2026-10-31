@@ -18,6 +18,8 @@ import { recordAudit } from "../../lib/audit.js";
 import { emitToShop } from "../../realtime/socket.js";
 import { findOrderMatch } from "./payments.matching.js";
 import { settleOrderAsPaid } from "./payments.service.js";
+import { txnMatches, amountsMatch } from "./scan.util.js";
+import { localDay } from "../../lib/time.js";
 
 const router = Router();
 
@@ -97,6 +99,35 @@ router.post(
     const amount = extraction.amount;
     const referenceTxnId = extraction.referenceTxnId ?? body.referenceTxnId ?? null;
 
+    // Amount filter: transfers above the configured limit are not treated as
+    // payments (they are usually personal transfers, not sales).
+    const shop = await prisma.shop.findUniqueOrThrow({
+      where: { id: shopId },
+      select: { paymentMaxAmount: true },
+    });
+    const limit = Number(shop.paymentMaxAmount);
+    if (limit > 0 && amount > limit) {
+      const unmatched = await prisma.unmatchedSms.create({
+        data: {
+          shopId,
+          deviceId: req.device!.id,
+          sender: extraction.sender ?? body.sender ?? body.senderPhone ?? null,
+          body: body.rawSms,
+          receivedAt: body.receivedAt ?? new Date(),
+        },
+      });
+      emitToShop(shopId, "sms:unmatched", serializeDecimals(unmatched));
+      res.status(202).json(
+        ok({
+          ignored: true,
+          reason: "amount_above_limit",
+          limit,
+          unmatchedSmsId: unmatched.id,
+        }),
+      );
+      return;
+    }
+
     const existing = await prisma.payment.findFirst({
       where: { shopId, OR: [{ txnId }, { referenceTxnId: txnId }] },
     });
@@ -113,6 +144,22 @@ router.post(
       amount,
       receivedAt: body.receivedAt,
     });
+
+    // A pending OCR scan from the staff phone may already describe this
+    // transfer — if so, this SMS confirms it.
+    const pendingScans = await prisma.paymentScan.findMany({
+      where: { shopId, status: "PENDING" },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    const matchedScan =
+      pendingScans.find(
+        (s) =>
+          (s.txnId &&
+            (txnMatches(s.txnId, txnId) ||
+              (referenceTxnId && txnMatches(s.txnId, referenceTxnId)))) ||
+          (s.amount != null && amountsMatch(s.amount, amount)),
+      ) ?? null;
 
     const status = match
       ? match.matchType === "exact"
@@ -136,6 +183,8 @@ router.post(
         rawSms: body.rawSms,
         source: body.source,
         status,
+        confirmed: !!matchedScan,
+        confirmedAt: matchedScan ? new Date() : null,
         deviceId: req.device!.id,
         templateId: matchedTemplate.id,
         receivedAt: body.receivedAt ?? new Date(),
@@ -143,6 +192,19 @@ router.post(
         verifiedAt: status === "VERIFIED" ? new Date() : null,
       },
     });
+
+    if (matchedScan) {
+      await prisma.paymentScan.update({
+        where: { id: matchedScan.id },
+        data: { status: "MATCHED", paymentId: payment.id, matchedAt: new Date() },
+      });
+      emitToShop(shopId, "scan:matched", {
+        scanId: matchedScan.id,
+        paymentId: payment.id,
+        amount,
+        txnId,
+      });
+    }
 
     if (match) {
       await settleOrderAsPaid({
@@ -266,6 +328,34 @@ router.post(
 );
 
 router.get(
+  "/scans",
+  asyncHandler(async (req, res) => {
+    const scans = await prisma.paymentScan.findMany({
+      where: { shopId: req.staff!.shopId },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+    });
+    res.json(ok(serializeDecimals(scans)));
+  }),
+);
+
+router.get(
+  "/pending",
+  asyncHandler(async (req, res) => {
+    const payments = await prisma.payment.findMany({
+      where: {
+        shopId: req.staff!.shopId,
+        confirmed: false,
+        status: { not: "DUPLICATE" },
+      },
+      orderBy: { receivedAt: "desc" },
+      take: 30,
+    });
+    res.json(ok(serializeDecimals(payments)));
+  }),
+);
+
+router.get(
   "/:id",
   asyncHandler(async (req, res) => {
     const payment = await prisma.payment.findFirst({
@@ -324,6 +414,135 @@ router.post(
         order: serializeDecimals(order),
       }),
     );
+  }),
+);
+
+router.post(
+  "/scan",
+  asyncHandler(async (req, res) => {
+    const { txnId, amount, sender, rawText } = req.body as {
+      txnId?: string;
+      amount?: number;
+      sender?: string;
+      rawText?: string;
+    };
+    const shopId = req.staff!.shopId;
+
+    // Always store the scan first so it can be confirmed later even if the SMS
+    // has not arrived yet.
+    const scan = await prisma.paymentScan.create({
+      data: {
+        shopId,
+        staffId: req.staff!.id,
+        txnId: txnId?.trim() || null,
+        amount:
+          typeof amount === "number" && Number.isFinite(amount) ? amount : null,
+        sender: sender?.trim() || null,
+        rawText: rawText ?? "",
+      },
+    });
+
+    const includeOrder = {
+      order: {
+        select: { id: true, orderNumber: true, status: true, total: true },
+      },
+    } as const;
+
+    const fetchPayments = () =>
+      prisma.payment.findMany({
+        where: { shopId },
+        include: includeOrder,
+        orderBy: { receivedAt: "desc" as const },
+        take: 200,
+      });
+    type Candidate = Awaited<ReturnType<typeof fetchPayments>>[number];
+
+    let payment: Candidate | null = null;
+    if (scan.txnId) {
+      payment =
+        (await fetchPayments()).find((p) =>
+          [p.txnId, p.referenceTxnId]
+            .filter((v): v is string => !!v)
+            .some((v) => txnMatches(v, scan.txnId)),
+        ) ?? null;
+    }
+
+    if (!payment && scan.amount != null && !scan.txnId) {
+      const shop = await prisma.shop.findUniqueOrThrow({
+        where: { id: shopId },
+        select: { timezone: true },
+      });
+      const { start } = localDay(shop.timezone);
+      payment = await prisma.payment.findFirst({
+        where: {
+          shopId,
+          amount: scan.amount,
+          receivedAt: { gte: start },
+        },
+        include: includeOrder,
+        orderBy: { receivedAt: "desc" },
+      });
+    }
+
+    if (payment) {
+      const [updatedScan, updatedPayment] = await prisma.$transaction([
+        prisma.paymentScan.update({
+          where: { id: scan.id },
+          data: {
+            status: "MATCHED",
+            paymentId: payment.id,
+            matchedAt: new Date(),
+          },
+        }),
+        prisma.payment.update({
+          where: { id: payment.id },
+          data: { confirmed: true, confirmedAt: new Date() },
+        }),
+      ]);
+      emitToShop(shopId, "scan:matched", {
+        scanId: scan.id,
+        paymentId: payment.id,
+        amount: payment.amount,
+        txnId: payment.txnId,
+      });
+      res.status(201).json(
+        ok({
+          status: "MATCHED",
+          scan: serializeDecimals(updatedScan),
+          payment: serializeDecimals(updatedPayment),
+          order: payment.order ? serializeDecimals(payment.order) : null,
+        }),
+      );
+      return;
+    }
+
+    res
+      .status(201)
+      .json(ok({ status: "PENDING", scan: serializeDecimals(scan) }));
+  }),
+);
+
+router.post(
+  "/:id/confirm",
+  asyncHandler(async (req, res) => {
+    const payment = await prisma.payment.findFirst({
+      where: { id: String(req.params.id), shopId: req.staff!.shopId },
+    });
+    if (!payment) throw new AppError(404, "Payment not found");
+    const updated = await prisma.payment.update({
+      where: { id: payment.id },
+      data: { confirmed: true, confirmedAt: new Date() },
+    });
+    emitToShop(req.staff!.shopId, "payment:received", serializeDecimals(updated));
+    recordAudit({
+      shopId: req.staff!.shopId,
+      staffId: req.staff!.id,
+      action: "payment.confirm",
+      entity: "Payment",
+      entityId: payment.id,
+      ip: req.ip,
+    });
+    res.json(ok(serializeDecimals(updated)));
   }),
 );
 
