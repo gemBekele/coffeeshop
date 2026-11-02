@@ -2,7 +2,8 @@ import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { asyncHandler, ok } from "../../lib/http.js";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
-import { localDay } from "../../lib/time.js";
+import { localDay, localDateOf } from "../../lib/time.js";
+import { splitDayTotals } from "@coffeeshop/shared";
 
 const router = Router();
 router.use(requireAuth);
@@ -127,12 +128,32 @@ router.get(
       }
     }
 
+    const dayPayments = await prisma.payment.findMany({
+      where: {
+        shopId,
+        receivedAt: { gte: start, lte: end },
+        source: { not: "MANUAL" },
+      },
+      select: { amount: true, status: true, confirmed: true, bank: true },
+    });
+    const bankAmount = dayPayments
+      .filter(
+        (p) =>
+          (p.confirmed || p.status === "VERIFIED" || p.status === "MATCHED") &&
+          (p.bank ?? "").toUpperCase() !== "CASH",
+      )
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+    const split = splitDayTotals(totalSales, bankAmount);
+
     res.json(
       ok({
         date,
-        totalSales,
+        totalSales: split.sales,
         totalItems,
         orderCount: orders.length,
+        bank: split.bank,
+        cash: split.cash,
+        surplus: split.surplus,
         items: [...map.values()].sort((a, b) => b.quantity - a.quantity),
       }),
     );
@@ -144,6 +165,10 @@ router.get(
   asyncHandler(async (req, res) => {
     const query = req.query as Record<string, string | undefined>;
     const { from, to } = rangeFromQuery(query);
+    const shop = await prisma.shop.findUniqueOrThrow({
+      where: { id: req.staff!.shopId },
+      select: { timezone: true },
+    });
     const orders = await prisma.order.findMany({
       where: {
         shopId: req.staff!.shopId,
@@ -156,7 +181,7 @@ router.get(
 
     const byDay = new Map<string, { date: string; orders: number; sales: number }>();
     for (const o of orders) {
-      const day = (o.paidAt ?? new Date()).toISOString().slice(0, 10);
+      const day = localDateOf(shop.timezone, o.paidAt ?? new Date());
       const entry = byDay.get(day) ?? { date: day, orders: 0, sales: 0 };
       entry.orders += 1;
       entry.sales += Number(o.total);
@@ -213,6 +238,7 @@ router.get(
           shopId,
           receivedAt: { gte: from, lte: to },
           status: { in: ["MATCHED", "VERIFIED"] },
+          source: { not: "MANUAL" },
         },
         _count: { _all: true },
         _sum: { amount: true },
@@ -277,23 +303,29 @@ async function buildDayClose(shopId: string) {
   });
   const { start, end, date } = localDay(shop.timezone);
 
-  const [payments, paidOrders, closedAudit] = await Promise.all([
+  const [payments, salesAgg, closedAudit] = await Promise.all([
     prisma.payment.findMany({
-      where: { shopId, receivedAt: { gte: start, lte: end } },
+      where: {
+        shopId,
+        receivedAt: { gte: start, lte: end },
+        source: { not: "MANUAL" },
+      },
       select: {
         id: true,
         amount: true,
         status: true,
-        source: true,
         bank: true,
         sender: true,
         txnId: true,
+        confirmed: true,
         receivedAt: true,
       },
       orderBy: { receivedAt: "desc" },
     }),
-    prisma.order.count({
+    prisma.order.aggregate({
       where: { shopId, status: "PAID", paidAt: { gte: start, lte: end } },
+      _sum: { total: true },
+      _count: { _all: true },
     }),
     prisma.auditLog.findFirst({
       where: {
@@ -306,24 +338,29 @@ async function buildDayClose(shopId: string) {
     }),
   ]);
 
-  const settled = ["VERIFIED", "MATCHED"];
-  const isCash = (p: (typeof payments)[number]) =>
-    p.source === "MANUAL" || (p.bank ?? "").toUpperCase() === "CASH";
+  const isCashRow = (p: (typeof payments)[number]) =>
+    (p.bank ?? "").toUpperCase() === "CASH";
+  const isSettled = (p: (typeof payments)[number]) =>
+    !isCashRow(p) &&
+    (p.confirmed || p.status === "VERIFIED" || p.status === "MATCHED");
 
-  const cash = payments.filter((p) => isCash(p) && settled.includes(p.status));
-  const transfers = payments.filter((p) => !isCash(p) && settled.includes(p.status));
-  const pending = payments.filter((p) => !settled.includes(p.status));
+  const bank = payments.filter(isSettled);
+  const pending = payments.filter((p) => !isCashRow(p) && !isSettled(p));
 
   const sum = (list: typeof payments) =>
     Math.round(list.reduce((acc, p) => acc + Number(p.amount), 0) * 100) / 100;
 
-  const cashAmount = sum(cash);
-  const transferAmount = sum(transfers);
+  const salesAmount = Number(salesAgg._sum.total ?? 0);
+  const split = splitDayTotals(salesAmount, sum(bank));
 
   return {
     date,
-    cash: { count: cash.length, amount: cashAmount },
-    transfers: { count: transfers.length, amount: transferAmount },
+    sales: { count: salesAgg._count._all, amount: split.sales },
+    bank: { count: bank.length, amount: split.bank },
+    cash: { amount: split.cash },
+    surplus: split.surplus,
+    total: split.total,
+    paidOrders: salesAgg._count._all,
     pending: {
       count: pending.length,
       amount: sum(pending),
@@ -335,11 +372,93 @@ async function buildDayClose(shopId: string) {
         receivedAt: p.receivedAt,
       })),
     },
-    total: Math.round((cashAmount + transferAmount) * 100) / 100,
-    paidOrders,
     closedAt: closedAudit?.createdAt ?? null,
   };
 }
+
+/* ----------------------------- Daily calendar ---------------------------- */
+
+/** Zero-filled per-day sales/bank/cash for the heatmap (shop timezone). */
+router.get(
+  "/calendar",
+  asyncHandler(async (req, res) => {
+    const query = req.query as Record<string, string | undefined>;
+    const weeks = Math.min(26, Math.max(1, Number(query.weeks ?? 12) || 12));
+    const shopId = req.staff!.shopId;
+    const shop = await prisma.shop.findUniqueOrThrow({
+      where: { id: shopId },
+      select: { timezone: true },
+    });
+    const { start: todayStart } = localDay(shop.timezone);
+    const totalDays = weeks * 7;
+    const start = new Date(todayStart.getTime() - (totalDays - 1) * 86400000);
+    const end = new Date(todayStart.getTime() + 86400000 - 1);
+
+    const [orders, payments] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          shopId,
+          status: "PAID",
+          paidAt: { gte: start, lte: end },
+        },
+        select: { paidAt: true, total: true },
+      }),
+      prisma.payment.findMany({
+        where: {
+          shopId,
+          receivedAt: { gte: start, lte: end },
+          source: { not: "MANUAL" },
+        },
+        select: {
+          receivedAt: true,
+          amount: true,
+          status: true,
+          confirmed: true,
+          bank: true,
+        },
+      }),
+    ]);
+
+    const bucket = new Map<
+      string,
+      { sales: number; orders: number; bank: number }
+    >();
+    for (let i = 0; i < totalDays; i++) {
+      const day = localDateOf(shop.timezone, new Date(start.getTime() + i * 86400000));
+      bucket.set(day, { sales: 0, orders: 0, bank: 0 });
+    }
+    for (const order of orders) {
+      const entry = bucket.get(localDateOf(shop.timezone, order.paidAt ?? new Date()));
+      if (!entry) continue;
+      entry.sales += Number(order.total);
+      entry.orders += 1;
+    }
+    for (const p of payments) {
+      if ((p.bank ?? "").toUpperCase() === "CASH") continue;
+      if (!(p.confirmed || p.status === "VERIFIED" || p.status === "MATCHED")) {
+        continue;
+      }
+      const entry = bucket.get(localDateOf(shop.timezone, p.receivedAt));
+      if (entry) entry.bank += Number(p.amount);
+    }
+
+    const days = [...bucket.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, v]) => {
+        const split = splitDayTotals(v.sales, v.bank);
+        return {
+          date,
+          sales: split.sales,
+          orders: v.orders,
+          bank: split.bank,
+          cash: split.cash,
+          surplus: split.surplus,
+        };
+      });
+
+    res.json(ok({ weeks, days }));
+  }),
+);
 
 /** Today's cash and transfer totals in one place. */
 router.get(
@@ -367,8 +486,10 @@ router.post(
           entityId: req.staff!.shopId,
           metadata: {
             date: summary.date,
+            sales: summary.sales.amount,
             cash: summary.cash.amount,
-            transfers: summary.transfers.amount,
+            bank: summary.bank.amount,
+            surplus: summary.surplus,
             total: summary.total,
           },
           ip: req.ip,

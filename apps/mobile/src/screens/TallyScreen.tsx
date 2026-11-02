@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
   colors,
   Empty,
+  Fab,
   Loading,
   ScanIcon,
   radius,
@@ -113,18 +114,19 @@ export function TallyScreen({ onVerify }: { onVerify?: () => void }) {
   });
 
   return (
-    <Screen scroll>
-      <View style={styles.summary}>
-        {onVerify ? (
-          <Pressable
-            onPress={onVerify}
-            accessibilityRole="button"
+    <Screen
+      scroll
+      fab={
+        onVerify ? (
+          <Fab
+            icon={<ScanIcon size={26} />}
             accessibilityLabel="Scan a payment"
-            style={({ pressed }) => [styles.scanBtn, pressed && { opacity: 0.7 }]}
-          >
-            <ScanIcon size={22} />
-          </Pressable>
-        ) : null}
+            onPress={onVerify}
+          />
+        ) : undefined
+      }
+    >
+      <View style={styles.summary}>
         <Text style={styles.summaryLabel}>{today}</Text>
         <Text style={styles.summaryAmount}>
           {currency}{" "}
@@ -192,17 +194,6 @@ export function TallyScreen({ onVerify }: { onVerify?: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  scanBtn: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.16)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   summary: {
     backgroundColor: colors.brand,
     borderRadius: radius.card,

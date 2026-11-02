@@ -196,6 +196,8 @@ export function createApi(
     dailyReport: () => req<DailyReport>("/api/reports/daily"),
     dayClose: () => req<DayClose>("/api/reports/day-close"),
     closeDay: () => req<DayClose>("/api/reports/day-close", { method: "POST", body: {} }),
+    calendar: (weeks = 12) =>
+      req<CalendarData>(`/api/reports/calendar?weeks=${weeks}`),
     reportTopProducts: () =>
       req<Array<{ name: string; quantity: number; revenue: number }>>(
         "/api/reports/top-products",
@@ -373,12 +375,29 @@ export interface DayClosePendingItem {
 
 export interface DayClose {
   date: string;
-  cash: { count: number; amount: number };
-  transfers: { count: number; amount: number };
+  sales: { count: number; amount: number };
+  bank: { count: number; amount: number };
+  cash: { amount: number };
+  /** Bank money received above recorded sales. */
+  surplus: number;
   pending: { count: number; amount: number; items: DayClosePendingItem[] };
   total: number;
   paidOrders: number;
   closedAt: string | null;
+}
+
+export interface CalendarDay {
+  date: string;
+  sales: number;
+  orders: number;
+  bank: number;
+  cash: number;
+  surplus: number;
+}
+
+export interface CalendarData {
+  weeks: number;
+  days: CalendarDay[];
 }
 
 export interface Payment {

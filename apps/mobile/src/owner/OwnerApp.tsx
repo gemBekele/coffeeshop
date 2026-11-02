@@ -143,6 +143,7 @@ export function OwnerApp() {
             onStaff={() => setSub({ name: "staff" })}
             onSeeAllPayments={() => setSub({ name: "payments" })}
             onOpenInbox={() => setSub({ name: "inbox" })}
+            onVerify={() => setSub({ name: "verify" })}
           />
         </View>
         {warm || tab === "sell" ? (

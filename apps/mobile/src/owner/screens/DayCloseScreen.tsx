@@ -67,7 +67,7 @@ export function DayCloseScreen({
     );
   }
 
-  const payments = data.cash.count + data.transfers.count;
+  const payments = data.bank.count;
 
   return (
     <Screen title="Day close" onBack={onBack}>
@@ -75,24 +75,40 @@ export function DayCloseScreen({
         <Text style={styles.heroLabel}>Total today</Text>
         <Text style={styles.heroValue}>ETB {money(data.total)}</Text>
         <Text style={styles.heroHint}>
-          {payments} {payments === 1 ? "payment" : "payments"} ·{" "}
-          {data.paidOrders} {data.paidOrders === 1 ? "sale" : "sales"}
+          {data.sales.count} {data.sales.count === 1 ? "sale" : "sales"} ·{" "}
+          {payments} bank transfer{payments === 1 ? "" : "s"}
         </Text>
       </View>
 
       <SettingsGroup label="Where the money came from">
         <StatPair
-          label="Cash sales"
-          hint={`${data.cash.count} ${data.cash.count === 1 ? "sale" : "sales"}`}
-          value={`ETB ${money(data.cash.amount)}`}
+          label="Total sales"
+          hint={`${data.sales.count} ${data.sales.count === 1 ? "sale" : "sales"}`}
+          value={`ETB ${money(data.sales.amount)}`}
         />
         <StatPair
-          label="Bank transfers"
-          hint={`${data.transfers.count} received`}
-          value={`ETB ${money(data.transfers.amount)}`}
+          label="Bank received"
+          hint={`${data.bank.count} confirmed`}
+          value={`ETB ${money(data.bank.amount)}`}
+        />
+        <StatPair
+          label="Cash (calculated)"
+          hint="Sales minus confirmed bank"
+          value={`ETB ${money(data.cash.amount)}`}
+          strong
           last
         />
       </SettingsGroup>
+
+      {data.surplus > 0 ? (
+        <SettingsGroup label="Check">
+          <SettingsRow
+            title={`ETB ${money(data.surplus)} bank above sales`}
+            subtitle="More transfer money than recorded sales — verify amounts."
+            last
+          />
+        </SettingsGroup>
+      ) : null}
 
       {data.pending.count > 0 ? (
         <SettingsGroup label="Needs a look">

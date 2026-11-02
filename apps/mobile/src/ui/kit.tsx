@@ -621,7 +621,7 @@ export const styles = StyleSheet.create({
     justifyContent: "center",
   },
   backText: { color: colors.text, fontSize: 28, fontWeight: "600", lineHeight: 30 },
-  scroll: { paddingHorizontal: 20, paddingTop: 12, gap: 16, paddingBottom: 40 },
+  scroll: { paddingHorizontal: 20, paddingTop: 12, gap: 16, paddingBottom: 120 },
   scrollFill: { flex: 1, paddingHorizontal: 20, paddingTop: 12, gap: 16 },
   footer: {
     paddingHorizontal: 20,
@@ -839,14 +839,14 @@ export const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: colors.borderSoft, marginVertical: 4 },
   fabWrap: {
     position: "absolute",
-    right: 20,
-    // Clears the floating tab bar so the button never overlaps it.
-    bottom: 104,
+    right: 18,
+    // Sits above the bottom bar with a comfortable gap.
+    bottom: 96,
   },
   fab: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: colors.brand,
     alignItems: "center",
     justifyContent: "center",

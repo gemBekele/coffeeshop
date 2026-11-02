@@ -56,3 +56,20 @@ export function localDay(
     date: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
   };
 }
+
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+/** "YYYY-MM-DD" for an instant, in the given shop timezone. */
+export function localDateOf(timeZone: string, date: Date): string {
+  let fmt = formatters.get(timeZone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    formatters.set(timeZone, fmt);
+  }
+  return fmt.format(date);
+}

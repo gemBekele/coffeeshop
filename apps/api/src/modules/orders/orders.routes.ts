@@ -326,22 +326,8 @@ router.post(
       }
     }
 
-    await prisma.payment.create({
-      data: {
-        shopId: req.staff!.shopId,
-        orderId: created!.id,
-        txnId: `SALE-${created!.orderNumber}-${Date.now()}`,
-        amount: total,
-        currency: shop.currency,
-        bank: "CASH",
-        source: "MANUAL",
-        status: "VERIFIED",
-        direction: "CREDIT",
-        rawSms: "Quick sale at POS",
-        verifiedAt: new Date(),
-        matchedAt: new Date(),
-      },
-    });
+    // A sale is only a sale. Cash vs bank is reconciled at day close, so no
+    // per-order payment row is written here.
 
     await consumeRecipeForOrder({
       shopId: req.staff!.shopId,
@@ -478,44 +464,21 @@ router.post(
     if (existing.status === "PAID") throw new AppError(409, "Order is already paid");
     if (existing.status === "VOID") throw new AppError(409, "Order is voided");
 
-    const txnId = `CASH-${existing.orderNumber}-${Date.now()}`;
-    const shop = await prisma.shop.findUniqueOrThrow({
-      where: { id: req.staff!.shopId },
-      select: { currency: true },
-    });
-
-    await prisma.$transaction([
-      prisma.payment.create({
-        data: {
-          shopId: req.staff!.shopId,
-          orderId: existing.id,
-          txnId,
-          amount: existing.total,
-          currency: shop.currency,
-          bank: "CASH",
-          source: "MANUAL",
-          status: "VERIFIED",
-          direction: "CREDIT",
-          rawSms: "Cash payment recorded at POS",
-          verifiedAt: new Date(),
-          matchedAt: new Date(),
-        },
-      }),
-      prisma.order.update({
-        where: { id: existing.id },
-        data: {
-          status: "PAID",
-          paidAt: new Date(),
-          statusEvents: {
-            create: {
-              status: "PAID",
-              note: "Cash payment",
-              createdById: req.staff!.id,
-            },
+    // Kept for older clients: marks the order paid. Cash is derived at close.
+    await prisma.order.update({
+      where: { id: existing.id },
+      data: {
+        status: "PAID",
+        paidAt: new Date(),
+        statusEvents: {
+          create: {
+            status: "PAID",
+            note: "Paid",
+            createdById: req.staff!.id,
           },
         },
-      }),
-    ]);
+      },
+    });
 
     await consumeRecipeForOrder({
       shopId: req.staff!.shopId,

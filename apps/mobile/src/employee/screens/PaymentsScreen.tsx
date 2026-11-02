@@ -1,16 +1,16 @@
 import React, { useCallback, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
-  Btn,
   colors,
   Empty,
-  ListRowCard,
+  Fab,
   Loading,
   Screen,
+  ScanIcon,
 } from "../../ui/kit";
 import { useApp } from "../../state/AppContext";
 import { useLive } from "../../lib/live";
-import type { Order, Payment } from "../../api/client";
+import type { Payment } from "../../api/client";
 
 type Filter = "todo" | "done";
 
@@ -24,8 +24,8 @@ const timeOf = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 /**
- * One place for bank money on a phone: transfers waiting for an action and
- * settled ones. A single tap opens the one action that applies.
+ * Bank transfers. One row = payer, amount, reference and time. "Verify" marks
+ * the transfer as received, which is what day close subtracts from sales.
  */
 export function PaymentsScreen({
   onBack,
@@ -36,8 +36,8 @@ export function PaymentsScreen({
 }) {
   const { api } = useApp();
   const [all, setAll] = useState<Payment[] | null>(null);
-  const [openOrders, setOpenOrders] = useState<Order[]>([]);
   const [filter, setFilter] = useState<Filter>("todo");
+  const [verifying, setVerifying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -53,64 +53,24 @@ export function PaymentsScreen({
         ),
       )
       .catch(() => setAll([]));
-    api
-      .orderBoard()
-      .then((board) => {
-        const flat: Order[] = [];
-        for (const key of ["OPEN", "CONFIRMED", "PREPARING", "READY", "SERVED"]) {
-          for (const order of board[key] ?? []) flat.push(order);
-        }
-        setOpenOrders(flat);
-      })
-      .catch(() => {});
   }, [api]);
 
   useLive(load);
 
-  const isTodo = (p: Payment) =>
-    p.confirmed === false || p.status === "UNMATCHED";
+  const isSettled = (p: Payment) =>
+    p.confirmed || p.status === "VERIFIED" || p.status === "MATCHED";
 
-  const attach = async (p: Payment, order: Order) => {
-    setError(null);
-    try {
-      await api.matchPayment(p.id, order.id);
-      load();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const confirmPickup = async (p: Payment) => {
+  const verify = async (p: Payment) => {
+    if (verifying) return;
+    setVerifying(p.id);
     setError(null);
     try {
       await api.confirmPayment(p.id);
       load();
     } catch (err) {
       setError((err as Error).message);
-    }
-  };
-
-  const openActions = (p: Payment) => {
-    if (p.status === "UNMATCHED") {
-      const suggested =
-        openOrders.find((o) => Math.abs(o.total - p.amount) < 0.01) ??
-        openOrders[0];
-      if (!suggested) {
-        Alert.alert(money(p.amount), "No open order to attach this to.");
-        return;
-      }
-      Alert.alert(money(p.amount), `Attach to order #${suggested.orderNumber}?`, [
-        { text: "Later", style: "cancel" },
-        { text: "Attach", onPress: () => void attach(p, suggested) },
-      ]);
-      return;
-    }
-    if (p.confirmed === false) {
-      Alert.alert(money(p.amount), "Money was handed over for this transfer.", [
-        { text: "Not yet", style: "cancel" },
-        { text: "Confirm picked up", onPress: () => void confirmPickup(p) },
-      ]);
-      return;
+    } finally {
+      setVerifying(null);
     }
   };
 
@@ -122,17 +82,21 @@ export function PaymentsScreen({
     );
   }
 
-  const todo = all.filter(isTodo);
-  const done = all.filter((p) => !isTodo(p));
+  const todo = all.filter((p) => !isSettled(p));
+  const done = all.filter(isSettled);
   const list = filter === "todo" ? todo : done;
 
   return (
     <Screen
       title="Payments"
       onBack={onBack}
-      right={
+      fab={
         onScan ? (
-          <Btn label="Scan" size="sm" variant="outline" onPress={onScan} />
+          <Fab
+            icon={<ScanIcon size={26} />}
+            accessibilityLabel="Scan a payment"
+            onPress={onScan}
+          />
         ) : undefined
       }
     >
@@ -164,41 +128,50 @@ export function PaymentsScreen({
         <Empty
           text={
             filter === "todo"
-              ? "Nothing waiting. Transfers that need action show up here."
+              ? "Nothing waiting. New transfers appear here instantly."
               : "No verified transfers yet."
           }
         />
       ) : (
         <View style={{ gap: 10 }}>
-          {list.map((p) => {
-            const needsConfirm = p.status !== "UNMATCHED" && p.confirmed === false;
-            return (
-              <ListRowCard
-                key={p.id}
-                icon={needsConfirm || p.status === "UNMATCHED" ? "!" : "✓"}
-                highlight={needsConfirm || p.status === "UNMATCHED"}
-                title={`${money(p.amount)} · ${p.sender ?? p.bank ?? "Transfer"}`}
-                subtitle={`Ref ${p.txnId} · ${timeOf(p.receivedAt)}`}
-                rightTop={
-                  p.status === "UNMATCHED"
-                    ? "Attach"
-                    : needsConfirm
-                      ? "Confirm"
-                      : p.order
-                        ? `#${p.order.orderNumber}`
-                        : "Paid"
-                }
-                rightBottom={
-                  p.status === "UNMATCHED"
-                    ? "Open order"
-                    : needsConfirm
-                      ? "Picked up?"
-                      : "Verified"
-                }
-                onPress={isTodo(p) ? () => openActions(p) : undefined}
-              />
-            );
-          })}
+          {list.map((p) => (
+            <View key={p.id} style={styles.row}>
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {p.sender ?? p.bank ?? "Transfer"}
+                </Text>
+                <Text style={styles.ref} numberOfLines={1}>
+                  Ref {p.txnId} · {timeOf(p.receivedAt)}
+                </Text>
+              </View>
+
+              <View style={styles.right}>
+                <Text style={styles.amount}>{money(p.amount)}</Text>
+                {isSettled(p) ? (
+                  <Text style={styles.status}>
+                    {p.confirmed ? "Received" : "Verified"}
+                  </Text>
+                ) : (
+                  <Pressable
+                    onPress={() => void verify(p)}
+                    disabled={verifying === p.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Verify ${money(p.amount)} from ${
+                      p.sender ?? "transfer"
+                    }`}
+                    style={({ pressed }) => [
+                      styles.verifyBtn,
+                      pressed && { opacity: 0.75 },
+                    ]}
+                  >
+                    <Text style={styles.verifyText}>
+                      {verifying === p.id ? "…" : "Verify"}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          ))}
         </View>
       )}
     </Screen>
@@ -217,4 +190,35 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontWeight: "600", color: colors.textMuted },
   chipTextActive: { color: colors.onInverse },
   error: { fontSize: 13, color: "#B45309" },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  name: { fontSize: 16, fontWeight: "700", color: colors.text },
+  ref: { fontSize: 13, color: colors.textMuted },
+  right: { alignItems: "flex-end", gap: 6 },
+  amount: { fontSize: 17, fontWeight: "800", color: colors.text },
+  status: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.brand,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  verifyBtn: {
+    backgroundColor: colors.brand,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  verifyText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.onInverse,
+  },
 });

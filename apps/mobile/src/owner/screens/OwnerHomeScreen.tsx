@@ -3,7 +3,9 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
   colors,
   Empty,
+  Fab,
   ListRowCard,
+  ScanIcon,
   Screen,
   SectionHeader,
   Subtitle,
@@ -41,11 +43,13 @@ export function OwnerHomeScreen({
   onStaff,
   onSeeAllPayments,
   onOpenInbox,
+  onVerify,
 }: {
   onDayClose: () => void;
   onStaff: () => void;
   onSeeAllPayments: () => void;
   onOpenInbox: () => void;
+  onVerify: () => void;
 }) {
   const { api, session, syncCapture } = useApp();
   const [me, setMe] = useState<MeResult | null>(null);
@@ -91,12 +95,20 @@ export function OwnerHomeScreen({
 
   const currency = me?.shop.currency ?? "ETB";
   const totalSold = close?.total ?? 0;
-  const bankTotal = close?.transfers.amount ?? 0;
+  const bankTotal = close?.bank.amount ?? 0;
   const cashTotal = close?.cash.amount ?? 0;
   const hasPayments = payments.length > 0 || unmatchedSms.length > 0;
 
   return (
-    <Screen>
+    <Screen
+      fab={
+        <Fab
+          icon={<ScanIcon size={26} />}
+          accessibilityLabel="Scan a payment"
+          onPress={onVerify}
+        />
+      }
+    >
       <View style={styles.topBar}>
         <View style={styles.profileRow}>
           <View style={styles.avatar}>
