@@ -11,13 +11,14 @@ import {
 } from "../../ui/kit";
 import { useApp } from "../../state/AppContext";
 import { useLive } from "../../lib/live";
-import { buildAutoRule } from "../sms/autoRule";
+import { createOrUpdateRule } from "../sms/autoRule";
 import type { UnmatchedSms } from "../../api/client";
 
 interface CreatedRule {
   id: string;
   name: string;
   sender: string | null;
+  updated: boolean;
 }
 
 /**
@@ -35,7 +36,7 @@ export function InboxScreen({
   onPickPhoneSms?: () => void;
   onReviewTemplate?: (id: string) => void;
 }) {
-  const { api } = useApp();
+  const { api, syncCapture } = useApp();
   const [items, setItems] = useState<UnmatchedSms[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const running = useRef(false);
@@ -52,33 +53,22 @@ export function InboxScreen({
     if (running.current) return;
     running.current = true;
     setError(null);
-    const rule = buildAutoRule(item.body);
-    if (!rule) {
-      running.current = false;
-      onUseSms(item.body);
-      return;
-    }
     setBusyId(item.id);
     try {
-      // Never create the same rule twice for identical message formats.
-      const existing = await api.templates().catch(() => []);
-      const duplicate = existing.find(
-        (t) => t.status === "ACTIVE" && t.templateBody === rule.templateBody,
-      );
-      if (duplicate) {
-        void api.dismissSms(item.id).catch(() => {});
-        setCreated({ id: duplicate.id, name: duplicate.name, sender: item.sender });
-        load();
+      const rule = await createOrUpdateRule(api, item.body);
+      if (!rule) {
+        onUseSms(item.body);
         return;
       }
-      const template = await api.createTemplate({
-        ...rule,
-        direction: "CREDIT",
-        status: "ACTIVE",
-        sampleSms: item.body,
-      });
       void api.dismissSms(item.id).catch(() => {});
-      setCreated({ id: template.id, name: template.name, sender: item.sender });
+      setCreated({
+        id: rule.id,
+        name: rule.name,
+        sender: item.sender,
+        updated: rule.updated,
+      });
+      // Apply the rule to capture immediately; do not rescan older messages.
+      void syncCapture(true).catch(() => {});
       load();
     } catch (err) {
       setError((err as Error).message);
@@ -103,9 +93,9 @@ export function InboxScreen({
       {created ? (
         <Card>
           <Subtitle>
-            Rule “{created.name}” is active
-            {created.sender ? ` for ${created.sender}` : ""}. New messages like
-            this will become payments automatically.
+            Rule “{created.name}” was {created.updated ? "updated" : "created"}
+            {created.sender ? ` for ${created.sender}` : ""}. Messages in this
+            format become payments automatically from now on.
           </Subtitle>
           <View style={{ flexDirection: "row", gap: 8 }}>
             {onReviewTemplate ? (

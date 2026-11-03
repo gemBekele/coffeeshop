@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   compileTemplate,
   matchTemplate,
+  matchTemplateBest,
   buildTemplateFromSpans,
   detectFields,
   FIELD_TOKENS,
@@ -18,8 +19,25 @@ import { asyncHandler, ok, AppError } from "../../lib/http.js";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
 import { recordAudit } from "../../lib/audit.js";
+import { emitToShop } from "../../realtime/socket.js";
 
 const router = Router();
+
+function isStrict(fieldMap: unknown): boolean {
+  return Boolean((fieldMap as { strict?: boolean } | null)?.strict);
+}
+
+function fieldMapWith(fields: unknown, strict: boolean) {
+  return { fields, strict } as never;
+}
+
+function templateMatches(template: { templateBody: string; fieldMap: unknown }, sample: string) {
+  return matchTemplateBest(
+    template.templateBody,
+    sample,
+    isStrict(template.fieldMap) ? { anchor: "both" } : undefined,
+  ).matched;
+}
 router.use(requireAuth);
 
 const UNKNOWN_FIELD = (name: string) => !(name in FIELD_TOKENS);
@@ -130,6 +148,62 @@ router.post(
       throw new AppError(400, "An active template must capture an {amount}");
     }
 
+    // One rule per format: if the sample is already handled by an active rule,
+    // update that rule instead of creating a duplicate.
+    if (input.sampleSms) {
+      const actives = await prisma.smsTemplate.findMany({
+        where: { shopId: req.staff!.shopId, status: "ACTIVE" },
+        orderBy: { updatedAt: "desc" },
+      });
+      const hit = actives.find((t) => templateMatches(t, input.sampleSms!));
+      if (hit) {
+        // Preserve an existing permissive rule (e.g. a bank preset) so it keeps
+        // matching both full SMS and notification bodies.
+        const strict = isStrict(hit.fieldMap);
+        const updated = await prisma.$transaction(async (tx) => {
+          const t = await tx.smsTemplate.update({
+            where: { id: hit.id },
+            data: {
+              templateBody: input.templateBody,
+              provider: input.provider,
+              senderAllowlist: input.senderAllowlist,
+              sampleSms: input.sampleSms,
+              status: "ACTIVE",
+              version: hit.version + 1,
+              fieldMap: fieldMapWith(diag.fields, strict),
+              lastTestedAt: new Date(),
+            },
+          });
+          await tx.smsTemplateRevision.create({
+            data: {
+              templateId: t.id,
+              version: t.version,
+              templateBody: t.templateBody,
+              direction: t.direction,
+              senderAllowlist: t.senderAllowlist,
+              changedById: req.staff!.id,
+            },
+          });
+          return t;
+        });
+        recordAudit({
+          shopId: req.staff!.shopId,
+          staffId: req.staff!.id,
+          action: "template.update",
+          entity: "SmsTemplate",
+          entityId: updated.id,
+          metadata: { version: updated.version, reason: "sample-match" },
+          ip: req.ip,
+        });
+        emitToShop(req.staff!.shopId, "templates:changed", {
+          templateId: updated.id,
+          status: updated.status,
+        });
+        res.json(ok({ ...updated, updated: true }));
+        return;
+      }
+    }
+
     const created = await prisma.smsTemplate.create({
       data: {
         shopId: req.staff!.shopId,
@@ -142,7 +216,7 @@ router.post(
         sampleSms: input.sampleSms,
         lastTestedAt: input.sampleSms ? new Date() : null,
         createdById: req.staff!.id,
-        fieldMap: diag.fields as never,
+        fieldMap: fieldMapWith(diag.fields, Boolean(input.sampleSms)),
         revisions: {
           create: {
             version: 1,
@@ -162,6 +236,10 @@ router.post(
       entity: "SmsTemplate",
       entityId: created.id,
       ip: req.ip,
+    });
+    emitToShop(req.staff!.shopId, "templates:changed", {
+      templateId: created.id,
+      status: created.status,
     });
     res.status(201).json(ok(created));
   }),
@@ -245,7 +323,7 @@ router.patch(
           status: input.status,
           sampleSms: input.sampleSms,
           version: nextVersion,
-          fieldMap: diag.fields as never,
+          fieldMap: fieldMapWith(diag.fields, isStrict(existing.fieldMap)),
           lastTestedAt: input.sampleSms ? new Date() : existing.lastTestedAt,
         },
       });
@@ -272,6 +350,10 @@ router.patch(
       entityId: existing.id,
       metadata: { version: nextVersion },
       ip: req.ip,
+    });
+    emitToShop(req.staff!.shopId, "templates:changed", {
+      templateId: updated.id,
+      status: updated.status,
     });
     res.json(ok(updated));
   }),
@@ -303,6 +385,10 @@ router.post(
       entityId: existing.id,
       ip: req.ip,
     });
+    emitToShop(req.staff!.shopId, "templates:changed", {
+      templateId: updated.id,
+      status: updated.status,
+    });
     res.json(ok(updated));
   }),
 );
@@ -319,6 +405,18 @@ router.post(
       where: { id: existing.id },
       data: { status: "ARCHIVED" },
     });
+    recordAudit({
+      shopId: req.staff!.shopId,
+      staffId: req.staff!.id,
+      action: "template.archive",
+      entity: "SmsTemplate",
+      entityId: existing.id,
+      ip: req.ip,
+    });
+    emitToShop(req.staff!.shopId, "templates:changed", {
+      templateId: updated.id,
+      status: updated.status,
+    });
     res.json(ok(updated));
   }),
 );
@@ -332,6 +430,10 @@ router.delete(
     });
     if (!existing) throw new AppError(404, "Template not found");
     await prisma.smsTemplate.delete({ where: { id: existing.id } });
+    emitToShop(req.staff!.shopId, "templates:changed", {
+      templateId: existing.id,
+      status: "DELETED",
+    });
     recordAudit({
       shopId: req.staff!.shopId,
       staffId: req.staff!.id,

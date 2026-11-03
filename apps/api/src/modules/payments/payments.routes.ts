@@ -64,7 +64,14 @@ router.post(
       | null = null;
     let extraction: ReturnType<typeof matchTemplateBest> | null = null;
     for (const template of templates) {
-      const result = matchTemplateBest(template.templateBody, body.rawSms);
+      const strict = Boolean(
+        (template.fieldMap as { strict?: boolean } | null)?.strict,
+      );
+      const result = matchTemplateBest(
+        template.templateBody,
+        body.rawSms,
+        strict ? { anchor: "both" } : undefined,
+      );
       if (result.matched && result.amount !== undefined) {
         matchedTemplate = template;
         extraction = result;

@@ -515,6 +515,8 @@ export interface DeviceTemplate {
   templateBody: string;
   regex: string;
   flags: string;
+  /** Whole-message matching (rules created from a sample). */
+  strict?: boolean;
   fields: string[];
   warnings: string[];
 }

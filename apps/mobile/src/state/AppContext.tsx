@@ -10,7 +10,12 @@ import React, {
 import { Platform } from "react-native";
 import { ApiError, apiRequest, createApi, type Api } from "../api/client";
 import { sessionStore, deviceStore, type Session } from "../lib/session";
-import { connectSocket, disconnectSocket, setSocketTokenGetter } from "../lib/socket";
+import {
+  connectSocket,
+  disconnectSocket,
+  onSocketEvent,
+  setSocketTokenGetter,
+} from "../lib/socket";
 import { smsCapture } from "../sms/service";
 import { notificationCapture } from "../notifications/service";
 
@@ -24,7 +29,7 @@ interface AppContextValue {
   signOut: () => Promise<void>;
   setDeviceKey: (key: string | null) => Promise<void>;
   refreshDeviceKey: () => Promise<void>;
-  syncCapture: () => Promise<void>;
+  syncCapture: (skipBackfill?: boolean) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -126,7 +131,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const ensureCapture = useCallback(
-    async (currentSession: Session | null) => {
+    async (
+      currentSession: Session | null,
+      opts?: { skipBackfill?: boolean },
+    ) => {
       if (!currentSession) return;
 
       // Every signed-in phone listens: whichever phone receives the SMS posts
@@ -170,7 +178,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         if (notificationCapture.isPermissionGranted()) {
           if (notificationCapture.isRunning()) {
-            await notificationCapture.loadTemplates(key, api);
+            await notificationCapture.loadTemplates(key, api, opts);
           } else {
             await notificationCapture.start(key, api);
           }
@@ -179,7 +187,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       try {
         if (smsCapture.isRunning()) {
-          await smsCapture.loadTemplates(key, api);
+          await smsCapture.loadTemplates(key, api, opts);
         } else {
           await smsCapture.start(key, api);
         }
@@ -283,9 +291,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setDeviceKeyState(d);
   }, []);
 
-  const syncCapture = useCallback(async () => {
-    await ensureCapture(session);
-  }, [ensureCapture, session]);
+  const syncCapture = useCallback(
+    async (skipBackfill?: boolean) => {
+      await ensureCapture(session, { skipBackfill });
+    },
+    [ensureCapture, session],
+  );
+
+  // A rule created/updated on any phone reloads capture everywhere. Old
+  // messages are not re-scanned; only messages from now on use the new rule.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const off = onSocketEvent("templates:changed", () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void syncCapture(true);
+      }, 400);
+    });
+    return () => {
+      off();
+      if (timer) clearTimeout(timer);
+    };
+  }, [syncCapture]);
 
   const value = useMemo<AppContextValue>(
     () => ({

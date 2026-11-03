@@ -19,6 +19,8 @@ class NotificationCapture {
   private api: Api | null = null;
   private subscriptions: Array<{ remove: () => void } | null> = [];
   private processed = new Set<string>();
+  /** Notifications posted at/before this time are ignored (no backfill). */
+  private captureSince = 0;
   private capturedSms: PostedNotification[] = [];
 
   isRunning(): boolean {
@@ -79,10 +81,15 @@ class NotificationCapture {
     this.watching = true;
   }
 
-  async loadTemplates(deviceKey: string, api: Api): Promise<void> {
+  async loadTemplates(
+    deviceKey: string,
+    api: Api,
+    opts?: { skipBackfill?: boolean },
+  ): Promise<void> {
     this.api = api;
     const config = await api.deviceConfig(deviceKey);
     this.templates = config.templates;
+    this.captureSince = opts?.skipBackfill ? Date.now() : 0;
     this.processed.clear();
     this.emit("info", `Loaded ${this.templates.length} active template(s)`);
     if (this.running) {
@@ -146,6 +153,7 @@ class NotificationCapture {
     const key = `${notification.packageName}:${notification.id}:${notification.postedAt}`;
     if (this.processed.has(key)) return;
     this.processed.add(key);
+    if (notification.postedAt && notification.postedAt <= this.captureSince) return;
     if (this.processed.size > 500) {
       this.processed = new Set([...this.processed].slice(-200));
     }

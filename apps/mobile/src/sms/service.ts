@@ -24,6 +24,8 @@ const POLL_MS = 2000;
 class SmsCapture {
   private timer: ReturnType<typeof setInterval> | null = null;
   private processed = new Set<string>();
+  /** Messages received at/before this time are ignored (no backfill). */
+  private captureSince = 0;
   private templates: DeviceTemplate[] = [];
   private listeners = new Set<Listener>();
   private running = false;
@@ -47,10 +49,15 @@ class SmsCapture {
     this.listeners.forEach((l) => l(event));
   }
 
-  async loadTemplates(deviceKey: string, api: Api): Promise<DeviceConfig> {
+  async loadTemplates(
+    deviceKey: string,
+    api: Api,
+    opts?: { skipBackfill?: boolean },
+  ): Promise<DeviceConfig> {
     this.api = api;
     const config = await api.deviceConfig(deviceKey);
     this.templates = config.templates;
+    this.captureSince = opts?.skipBackfill ? Date.now() : 0;
     this.processed.clear();
     this.emit("info", `Loaded ${this.templates.length} active template(s)`);
     if (this.running) {
@@ -104,6 +111,10 @@ class SmsCapture {
 
     for (const sms of messages) {
       if (this.processed.has(sms.id)) continue;
+      if (sms.date && sms.date <= this.captureSince) {
+        this.processed.add(sms.id);
+        continue;
+      }
 
       const parsed = matchTemplates(this.templates, sms.body);
       if (!parsed) continue;

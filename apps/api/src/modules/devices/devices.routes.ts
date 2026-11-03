@@ -37,6 +37,7 @@ router.get(
         senderAllowlist: t.senderAllowlist,
         version: t.version,
         templateBody: t.templateBody,
+        strict: Boolean((t.fieldMap as { strict?: boolean } | null)?.strict),
         fields: compiled.fields as FieldName[],
         regex: compiled.regex,
         flags: compiled.flags,

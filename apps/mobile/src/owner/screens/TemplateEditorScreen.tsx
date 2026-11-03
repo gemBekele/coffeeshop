@@ -14,11 +14,13 @@ import {
 } from "../../ui/kit";
 import { useApp } from "../../state/AppContext";
 import {
+  buildTemplateFromSample,
   buildTemplateFromSpans,
   detectFields,
   matchTemplateBest,
   type FieldName,
 } from "@coffeeshop/shared";
+import type { SmsTemplate } from "../../api/client";
 
 const PROVIDERS = [
   { label: "Telebirr", value: "TELEBIRR" },
@@ -62,25 +64,39 @@ export function TemplateEditorScreen({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [existing, setExisting] = useState<SmsTemplate | null>(null);
 
   const applySample = (sms: string) => {
     setSampleSms(sms);
     setError(null);
-    if (!sms.trim()) return;
+    if (!sms.trim()) {
+      setTemplateBody("");
+      return;
+    }
     const guessed = guessProvider(sms);
     setProvider(guessed);
     if (!name) setName(defaultNameFor(guessed));
+
+    // Whole-message pattern with every variable value tokenized.
+    const built = buildTemplateFromSample(sms);
+    if (built) {
+      setTemplateBody(built);
+      return;
+    }
+
+    // Fall back to the manual span builder (advanced).
     const spans = detectFields(sms).filter((s) => s.field !== "currency");
     if (spans.length > 0) {
-      const built = buildTemplateFromSpans(
-        sms,
-        spans.map((s) => ({
-          field: s.field as FieldName,
-          start: s.start,
-          end: s.end,
-        })),
+      setTemplateBody(
+        buildTemplateFromSpans(
+          sms,
+          spans.map((s) => ({
+            field: s.field as FieldName,
+            start: s.start,
+            end: s.end,
+          })),
+        ),
       );
-      setTemplateBody(built);
     }
   };
 
@@ -104,10 +120,31 @@ export function TemplateEditorScreen({
       .finally(() => setLoading(false));
   }, [api, templateId]);
 
+  useEffect(() => {
+    if (templateId || !sampleSms.trim()) {
+      setExisting(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .templates()
+      .then((list) => {
+        if (cancelled) return;
+        const hit = list.find(
+          (t) => t.status === "ACTIVE" && matchTemplateBest(t.templateBody, sampleSms).matched,
+        );
+        setExisting(hit ?? null);
+      })
+      .catch(() => setExisting(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [api, sampleSms, templateId]);
+
   const preview = useMemo(() => {
     if (!templateBody.trim() || !sampleSms.trim()) return null;
     try {
-      return matchTemplateBest(templateBody, sampleSms);
+      return matchTemplateBest(templateBody, sampleSms, { anchor: "both" });
     } catch {
       return null;
     }
@@ -137,8 +174,11 @@ export function TemplateEditorScreen({
     setBusy(true);
     try {
       const payload = {
-        name: name.trim() || defaultNameFor(provider),
-        provider,
+        // Updating an existing rule keeps its identity; only the pattern changes.
+        name: existing
+          ? existing.name
+          : name.trim() || defaultNameFor(provider),
+        provider: existing ? existing.provider : provider,
         direction: "CREDIT" as const,
         senderAllowlist: [],
         templateBody: bodyToSave,
@@ -147,11 +187,16 @@ export function TemplateEditorScreen({
       if (templateId) {
         await api.updateTemplate(templateId, payload);
         await api.activateTemplate(templateId);
+      } else if (existing) {
+        // One rule per format: update the rule that already handles it.
+        await api.updateTemplate(existing.id, payload);
+        await api.activateTemplate(existing.id);
       } else {
         const created = await api.createTemplate(payload);
         await api.activateTemplate(created.id);
       }
-      await syncCapture();
+      // Apply immediately; do not rescan messages that arrived before the rule.
+      await syncCapture(true);
       onDone();
     } catch (err) {
       setError((err as Error).message);
@@ -174,7 +219,13 @@ export function TemplateEditorScreen({
       onBack={onDone}
       footer={
         <Btn
-          label={busy ? "Activating…" : "Activate rule"}
+          label={
+            busy
+              ? "Saving…"
+              : existing
+                ? "Update rule"
+                : "Activate rule"
+          }
           onPress={saveAndActivate}
           disabled={busy}
         />
@@ -221,6 +272,15 @@ export function TemplateEditorScreen({
           );
         })}
       </View>
+
+      {existing ? (
+        <Card tone="muted">
+          <Subtitle>
+            This format is already handled by “{existing.name}”. Saving updates
+            that rule instead of creating a second one.
+          </Subtitle>
+        </Card>
+      ) : null}
 
       {preview && preview.matched ? (
         <Card>

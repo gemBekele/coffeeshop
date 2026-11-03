@@ -1,19 +1,15 @@
-import {
-  buildTemplateFromSpans,
-  detectFields,
-  type FieldName,
-} from "@coffeeshop/shared";
+import { buildTemplateFromSample, matchTemplateBest } from "@coffeeshop/shared";
+import type { Api, SmsTemplate } from "../../api/client";
 
-export interface AutoRule {
+export interface AutoRuleResult {
+  id: string;
   name: string;
-  provider: "TELEBIRR" | "CBE_BIRR" | "AMOLE" | "AWASH" | "OTHER";
-  senderAllowlist: string[];
-  templateBody: string;
+  updated: boolean;
 }
 
 const PROVIDERS: Array<{
   re: RegExp;
-  provider: AutoRule["provider"];
+  provider: "TELEBIRR" | "CBE_BIRR" | "AMOLE" | "AWASH" | "OTHER";
   label: string;
   allowlist: string[];
 }> = [
@@ -23,51 +19,56 @@ const PROVIDERS: Array<{
   { re: /\bawash\b/i, provider: "AWASH", label: "Awash", allowlist: ["Awash"] },
 ];
 
-/** Field priority: the order the tokens appear in the generated template. */
-const FIELD_ORDER: FieldName[] = [
-  "txnId",
-  "amount",
-  "senderName",
-  "senderPhone",
-  "sender",
-  "date",
-  "balance",
-  "account",
-];
+function detectProvider(sample: string) {
+  return PROVIDERS.find((p) => p.re.test(sample));
+}
+
+function matchingRule(
+  templates: SmsTemplate[],
+  sample: string,
+): SmsTemplate | undefined {
+  return templates.find(
+    (t) => t.status === "ACTIVE" && matchTemplateBest(t.templateBody, sample).matched,
+  );
+}
 
 /**
- * Build an active payment rule straight from a bank message. One tap, no
- * editor: the result can still be reviewed/edited afterwards.
+ * Turn a real message into an active rule.
  *
- * Returns null when the message has no readable amount.
+ * If an active rule already handles this format we update that rule instead of
+ * creating a second one, so the shop always has one rule per bank format.
  */
-export function buildAutoRule(sample: string): AutoRule | null {
-  const spans = detectFields(sample);
-  const byField = new Map<FieldName, (typeof spans)[number]>();
-  for (const span of spans) {
-    if (!byField.has(span.field)) byField.set(span.field, span);
+export async function createOrUpdateRule(
+  api: Api,
+  sample: string,
+): Promise<AutoRuleResult | null> {
+  const templateBody = buildTemplateFromSample(sample);
+  if (!templateBody) return null;
+
+  const hit = detectProvider(sample);
+  const templates = await api.templates().catch(() => [] as SmsTemplate[]);
+  const existing = matchingRule(templates, sample);
+
+  if (existing) {
+    const updated = await api.updateTemplate(existing.id, {
+      templateBody,
+      sampleSms: sample,
+      provider: hit?.provider ?? existing.provider,
+      senderAllowlist: hit?.allowlist ?? existing.senderAllowlist,
+      status: "ACTIVE",
+    });
+    await api.activateTemplate(updated.id);
+    return { id: updated.id, name: updated.name, updated: true };
   }
-  if (!byField.get("amount")) return null;
 
-  const chosen = FIELD_ORDER.map((field) => byField.get(field)).filter(
-    (span): span is (typeof spans)[number] => !!span,
-  );
-  if (chosen.length === 0) return null;
-
-  const templateBody = buildTemplateFromSpans(
-    sample,
-    chosen.map((span) => ({
-      field: span.field,
-      start: span.start,
-      end: span.end,
-    })),
-  );
-
-  const hit = PROVIDERS.find((p) => p.re.test(sample));
-  return {
+  const created = await api.createTemplate({
     name: `${hit?.label ?? "Auto"} rule`,
     provider: hit?.provider ?? "OTHER",
     senderAllowlist: hit?.allowlist ?? [],
+    direction: "CREDIT",
+    status: "ACTIVE",
     templateBody,
-  };
+    sampleSms: sample,
+  });
+  return { id: created.id, name: created.name, updated: false };
 }

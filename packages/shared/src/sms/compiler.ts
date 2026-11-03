@@ -1,3 +1,4 @@
+import { normalizeSmsText } from "./normalize.js";
 import {
   FIELD_TOKENS,
   isFieldName,
@@ -322,7 +323,10 @@ export function matchTemplate(
   smsText: string,
   options?: CompileOptions,
 ): ExtractedSms {
-  return extractWithCompiled(compileTemplate(templateBody, options), smsText);
+  return extractWithCompiled(
+    compileTemplate(templateBody, options),
+    normalizeSmsText(smsText),
+  );
 }
 
 /**
@@ -336,7 +340,10 @@ export function matchTemplateBest(
   smsText: string,
   options?: CompileOptions,
 ): ExtractedSms {
-  const strict = matchTemplate(templateBody, smsText, { anchor: "both", ...options });
+  const text = normalizeSmsText(smsText);
+  const strict = matchTemplate(templateBody, text, { anchor: "both", ...options });
   if (strict.matched) return strict;
-  return matchTemplate(templateBody, smsText, { anchor: "none", ...options });
+  // Callers can opt into whole-message semantics by passing anchor: "both".
+  if (options?.anchor === "both") return strict;
+  return matchTemplate(templateBody, text, { anchor: "none", ...options });
 }

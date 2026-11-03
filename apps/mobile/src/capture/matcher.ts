@@ -23,7 +23,11 @@ export function matchTemplates(
   text: string,
 ): ParsedCapture | null {
   for (const def of templates) {
-    const result = matchTemplateBest(def.templateBody, text, { caseInsensitive: true });
+    const result = matchTemplateBest(
+      def.templateBody,
+      text,
+      def.strict ? { anchor: "both", caseInsensitive: true } : { caseInsensitive: true },
+    );
     if (result.matched && result.amount !== undefined) {
       return {
         templateId: def.id,
