@@ -188,6 +188,15 @@ async function main() {
         "Amole: You have received ETB 150.00 from 0911223344. Transaction number: AM26011XY. Date: 11/10/2026.",
     },
     {
+      name: "Bank of Abyssinia - credited (preset)",
+      provider: SmsProvider.OTHER,
+      allowlist: ["Abyssinia"],
+      templateBody:
+        "your account {account} was credited with ETB {amount} by {senderName}. Available Balance: ETB {balance}. Receipt: https://cs.bankofabyssinia.com/slip/?trx={txnId}",
+      sampleSms:
+        "Dear Halid, your account 1*65 was credited with ETB 240.00 by Natnael Kibrom Habteab. Available Balance: ETB 1,067.82.\nReceipt: https://cs.bankofabyssinia.com/slip/?trx=FT26308GXLM346587\nFeedback: https://cs.bankofabyssinia.com/cs/?trx=CFT26308GXLM3\nLink your Fayda: https://cs.bankofabyssinia.com/fayda_connect \nFor help, call 8397 (24/7 Toll-Free). Bank of Abyssinia. ",
+    },
+    {
       name: "Awash - credited (preset)",
       provider: SmsProvider.AWASH,
       allowlist: ["Awash"],

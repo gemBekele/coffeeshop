@@ -17,6 +17,8 @@ const SENDER_RE =
 
 /** Receipt links, e.g. CBE "…/v2-hfHCxNKQIuBLPB4kYVPV". */
 const RECEIPT_RE = /\/v2-([A-Za-z0-9]{4,})/g;
+/** Receipt params, e.g. Bank of Abyssinia "…slip/?trx=FT26308GXLM346587". */
+const TRX_PARAM_RE = /[?&]trx=([A-Za-z0-9]{4,})/g;
 /** Payer names written in parentheses, e.g. "… (Hayder Aman Temam)". */
 const PAREN_NAME_RE = /\(([A-Za-z][A-Za-z .'\-]{1,40})\)/g;
 /** Masked account numbers, e.g. "1**8483". */
@@ -63,6 +65,15 @@ export function buildTemplateFromSample(sample: string): string | null {
     const value = m[1];
     const start = (m.index ?? 0) + m[0].length - value.length;
     add("txnId", start, start + value.length);
+  }
+
+  // 1b) Receipt params (first one is the receipt, later ones are references).
+  let trxIndex = 0;
+  for (const m of text.matchAll(TRX_PARAM_RE)) {
+    const value = m[1];
+    const start = (m.index ?? 0) + m[0].length - value.length;
+    add(trxIndex === 0 ? "txnId" : "referenceTxnId", start, start + value.length);
+    trxIndex++;
   }
 
   // 2) Payer names inside parentheses.

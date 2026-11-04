@@ -86,3 +86,35 @@ test("pattern built from the CBE sample matches a later variant", () => {
   assert.equal(result.txnId, "abc123XYZ789");
   assert.equal(result.senderName, "Dawit Bekele");
 });
+
+const BOA_SAMPLE =
+  "Dear Halid, your account 1*65 was credited with ETB 240.00 by Natnael Kibrom Habteab. Available Balance: ETB 1,067.82.\nReceipt: https://cs.bankofabyssinia.com/slip/?trx=FT26308GXLM346587\nFeedback: https://cs.bankofabyssinia.com/cs/?trx=CFT26308GXLM3\nLink your Fayda: https://cs.bankofabyssinia.com/fayda_connect \nFor help, call 8397 (24/7 Toll-Free). Bank of Abyssinia. ";
+const BOA_BODY =
+  "your account {account} was credited with ETB {amount} by {senderName}. Available Balance: ETB {balance}. Receipt: https://cs.bankofabyssinia.com/slip/?trx={txnId}";
+const BOA_NEXT =
+  "Dear Halid, your account 1*65 was credited with ETB 75.50 by Sara Bekele. Available Balance: ETB 1,143.32.\nReceipt: https://cs.bankofabyssinia.com/slip/?trx=FT26309ABCD123\nFeedback: https://cs.bankofabyssinia.com/cs/?trx=CFT26309ABCD1\nLink your Fayda: https://cs.bankofabyssinia.com/fayda_connect \nFor help, call 8397 (24/7 Toll-Free). Bank of Abyssinia. ";
+
+test("Bank of Abyssinia preset matches the real message and a later one", () => {
+  const first = matchTemplateBest(BOA_BODY, BOA_SAMPLE);
+  assert.equal(first.matched, true);
+  assert.equal(first.amount, 240);
+  assert.equal(first.txnId, "FT26308GXLM346587");
+  assert.equal(first.senderName, "Natnael Kibrom Habteab");
+  assert.equal(first.balance, 1067.82);
+
+  const next = matchTemplateBest(BOA_BODY, BOA_NEXT);
+  assert.equal(next.matched, true);
+  assert.equal(next.amount, 75.5);
+  assert.equal(next.txnId, "FT26309ABCD123");
+  assert.equal(next.senderName, "Sara Bekele");
+  assert.equal(next.balance, 1143.32);
+});
+
+test("builder handles the Bank of Abyssinia receipt param", () => {
+  const pattern = buildTemplateFromSample(BOA_SAMPLE);
+  assert.ok(pattern);
+  const result = matchTemplateBest(pattern, BOA_NEXT, { anchor: "both" });
+  assert.equal(result.matched, true, pattern);
+  assert.equal(result.amount, 75.5);
+  assert.equal(result.txnId, "FT26309ABCD123");
+});
