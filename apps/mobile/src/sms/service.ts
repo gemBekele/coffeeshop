@@ -1,5 +1,11 @@
 import type { Api, DeviceConfig, DeviceTemplate } from "../api/client";
-import { readSms, requestSmsPermission, isSmsModuleAvailable } from "./reader";
+import {
+  readSms,
+  requestSmsPermission,
+  isSmsModuleAvailable,
+  subscribeSms,
+  type RawSms,
+} from "./reader";
 import { matchTemplates } from "../capture/matcher";
 
 export interface CaptureEvent {
@@ -9,6 +15,7 @@ export interface CaptureEvent {
 }
 
 type Listener = (event: CaptureEvent) => void;
+type SmsListener = (sms: RawSms) => void;
 
 const POLL_MS = 2000;
 
@@ -23,6 +30,8 @@ const POLL_MS = 2000;
  */
 class SmsCapture {
   private timer: ReturnType<typeof setInterval> | null = null;
+  private smsSub: { remove: () => void } | null = null;
+  private smsListeners = new Set<SmsListener>();
   private processed = new Set<string>();
   /** Messages received at/before this time are ignored (no backfill). */
   private captureSince = 0;
@@ -42,6 +51,12 @@ class SmsCapture {
   onEvent(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Notifies UI (message pickers) the moment an SMS lands. */
+  onSms(listener: SmsListener): () => void {
+    this.smsListeners.add(listener);
+    return () => this.smsListeners.delete(listener);
   }
 
   private emit(level: CaptureEvent["level"], message: string): void {
@@ -86,7 +101,13 @@ class SmsCapture {
     await this.loadTemplates(deviceKey, api);
 
     this.running = true;
+    // Instant path: the native receiver pushes each SMS as it arrives.
+    this.smsSub?.remove();
+    this.smsSub = subscribeSms((sms) => {
+      void this.handleMessage(sms);
+    });
     this.emit("info", "SMS capture started");
+    // Polling remains as a safety net when a broadcast is missed.
     this.timer = setInterval(() => {
       void this.poll();
     }, POLL_MS);
@@ -96,6 +117,8 @@ class SmsCapture {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.smsSub?.remove();
+    this.smsSub = null;
     this.running = false;
     this.emit("info", "SMS capture stopped");
   }
@@ -116,41 +139,57 @@ class SmsCapture {
         continue;
       }
 
-      const parsed = matchTemplates(this.templates, sms.body);
-      if (!parsed) continue;
-      this.processed.add(sms.id);
-
-      if (parsed.direction === "DEBIT") continue;
-
-      try {
-        const result = await this.api.ingestSms({
-          txnId: parsed.txnId ?? `SMS-${sms.id}`,
-          amount: parsed.amount,
-          sender: parsed.sender,
-          senderPhone: parsed.senderPhone,
-          bank: parsed.provider,
-          direction: parsed.direction,
-          rawSms: sms.body,
-          templateId: parsed.templateId,
-          source: "SMS",
-          receivedAt: new Date(sms.date).toISOString(),
-        });
-        if (result.unmatched) {
-          this.emit("info", `SMS needs a template (added to inbox)`);
-        } else if (result.duplicate) {
-          this.emit("info", `Duplicate payment ${parsed.txnId ?? sms.id}`);
-        } else if (result.matched) {
-          this.emit("success", `Payment ${parsed.amount} matched (${result.matchType})`);
-        } else {
-          this.emit("info", `Payment ${parsed.amount} recorded (unmatched)`);
-        }
-      } catch (err) {
-        this.emit("error", `Ingest failed: ${(err as Error).message}`);
-      }
+      await this.handleMessage(sms);
     }
 
     if (this.processed.size > 500) {
       this.processed = new Set([...this.processed].slice(-200));
+    }
+  }
+
+  private async handleMessage(sms: RawSms): Promise<void> {
+    if (this.processed.has(sms.id)) return;
+    if (sms.date && sms.date <= this.captureSince) {
+      this.processed.add(sms.id);
+      return;
+    }
+    this.processed.add(sms.id);
+
+    // UI listeners (message pickers) update regardless of template match.
+    this.smsListeners.forEach((listener) => {
+      try {
+        listener(sms);
+      } catch {}
+    });
+
+    if (!this.api) return;
+    const parsed = matchTemplates(this.templates, sms.body);
+    if (!parsed || parsed.direction === "DEBIT") return;
+
+    try {
+      const result = await this.api.ingestSms({
+        txnId: parsed.txnId ?? `SMS-${sms.id}`,
+        amount: parsed.amount,
+        sender: parsed.sender,
+        senderPhone: parsed.senderPhone,
+        bank: parsed.provider,
+        direction: parsed.direction,
+        rawSms: sms.body,
+        templateId: parsed.templateId,
+        source: "SMS",
+        receivedAt: new Date(sms.date).toISOString(),
+      });
+      if (result.unmatched) {
+        this.emit("info", "SMS needs a template (added to inbox)");
+      } else if (result.duplicate) {
+        this.emit("info", `Duplicate payment ${parsed.txnId ?? sms.id}`);
+      } else if (result.matched) {
+        this.emit("success", `Payment ${parsed.amount} matched (${result.matchType})`);
+      } else {
+        this.emit("info", `Payment ${parsed.amount} recorded (unmatched)`);
+      }
+    } catch (err) {
+      this.emit("error", `Ingest failed: ${(err as Error).message}`);
     }
   }
 }

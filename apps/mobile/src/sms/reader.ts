@@ -1,5 +1,6 @@
 import { PermissionsAndroid, Platform } from "react-native";
 import { NotificationListener } from "../../modules/notification-listener";
+import type { EventSubscription } from "expo-modules-core";
 
 export interface RawSms {
   id: string;
@@ -41,4 +42,22 @@ export async function readSms(limit = 50): Promise<RawSms[]> {
 
 export function isSmsModuleAvailable(): boolean {
   return NotificationListener.isAvailable();
+}
+
+/** Subscribe to SMS delivered by the native receiver (instant, no polling). */
+export function subscribeSms(
+  listener: (sms: RawSms) => void,
+): EventSubscription | null {
+  if (Platform.OS !== "android") return null;
+  // Permission may have been granted after the module was created.
+  NotificationListener.ensureSmsReceiver();
+  return NotificationListener.addSmsListener((s) =>
+    listener({
+      id: s.id,
+      address: s.address,
+      body: s.body,
+      date: s.date,
+      source: "SMS",
+    }),
+  );
 }

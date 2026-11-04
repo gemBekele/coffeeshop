@@ -1,21 +1,66 @@
 package expo.modules.notificationlistener
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.provider.Settings
 import android.provider.Telephony
+import androidx.core.content.ContextCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 class NotificationListenerModule : Module() {
+  private var smsReceiver: BroadcastReceiver? = null
+
+  /** Register lazily: SMS permission may only be granted after app start. */
+  private fun registerSmsReceiver() {
+    if (smsReceiver != null) return
+    val context = appContext.reactContext ?: return
+    if (context.checkSelfPermission(Manifest.permission.RECEIVE_SMS) !=
+      PackageManager.PERMISSION_GRANTED
+    ) {
+      return
+    }
+    val receiver = SmsReceivedReceiver { payload ->
+      sendEvent("onSms", payload)
+    }
+    try {
+      ContextCompat.registerReceiver(
+        context,
+        receiver,
+        IntentFilter(Telephony.Sms.Intents.SMS_RECEIVED_ACTION),
+        ContextCompat.RECEIVER_EXPORTED,
+      )
+      smsReceiver = receiver
+    } catch (_: Throwable) {
+      // Polling still covers capture if registration is unavailable.
+    }
+  }
+
   override fun definition() = ModuleDefinition {
     Name("NotificationListener")
 
-    Events("onNotification", "onListenerStateChanged")
+    Events("onNotification", "onListenerStateChanged", "onSms")
+
+    OnCreate {
+      registerSmsReceiver()
+    }
+
+    OnDestroy {
+      val receiver = smsReceiver ?: return@OnDestroy
+      try {
+        appContext.reactContext?.unregisterReceiver(receiver)
+      } catch (_: Throwable) {
+        // Already unregistered.
+      }
+      smsReceiver = null
+    }
 
     OnStartObserving {
+      registerSmsReceiver()
       NotificationBridge.setNotificationEmitter { payload ->
         sendEvent("onNotification", payload.toMap())
       }
@@ -56,6 +101,11 @@ class NotificationListenerModule : Module() {
       val context = appContext.reactContext ?: return@Function false
       context.checkSelfPermission(Manifest.permission.READ_SMS) ==
         PackageManager.PERMISSION_GRANTED
+    }
+
+    Function("ensureSmsReceiver") {
+      registerSmsReceiver()
+      smsReceiver != null
     }
 
     AsyncFunction("readSmsInbox") { maxCount: Int ->

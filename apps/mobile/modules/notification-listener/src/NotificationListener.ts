@@ -13,6 +13,7 @@ import type {
 type NotificationEvents = {
   onNotification: (notification: PostedNotification) => void;
   onListenerStateChanged: (state: ListenerState) => void;
+  onSms: (sms: InboxSms) => void;
   // Index signature required by Expo's EventsMap constraint.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: (...args: any[]) => void;
@@ -24,6 +25,7 @@ declare class NativeNotificationModule extends NativeModule {
   getBuffered(): PostedNotification[];
   openPermissionSettings(): void;
   hasSmsPermission(): boolean;
+  ensureSmsReceiver(): boolean;
   readSmsInbox(maxCount: number): Promise<InboxSms[]>;
 }
 
@@ -67,6 +69,10 @@ export const NotificationListener = {
     return native ? native.hasSmsPermission() : false;
   },
 
+  ensureSmsReceiver(): boolean {
+    return native ? native.ensureSmsReceiver() : false;
+  },
+
   async readSmsInbox(maxCount = 50): Promise<InboxSms[]> {
     return native ? native.readSmsInbox(maxCount) : [];
   },
@@ -83,6 +89,14 @@ export const NotificationListener = {
   ): EventSubscription | null {
     if (!emitter) return null;
     return emitter.addListener("onListenerStateChanged", listener);
+  },
+
+  /** Instant SMS delivery from the native broadcast receiver. */
+  addSmsListener(
+    listener: (sms: InboxSms) => void,
+  ): EventSubscription | null {
+    if (!emitter) return null;
+    return emitter.addListener("onSms", listener);
   },
 };
 

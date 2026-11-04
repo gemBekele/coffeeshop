@@ -11,6 +11,8 @@ import {
 } from "../../ui/kit";
 import { useApp } from "../../state/AppContext";
 import { useLive } from "../../lib/live";
+import { onSocketEvent } from "../../lib/socket";
+import { useEffect } from "react";
 import { createOrUpdateRule } from "../sms/autoRule";
 import type { UnmatchedSms } from "../../api/client";
 
@@ -47,7 +49,22 @@ export function InboxScreen({
     api.smsInbox().then(setItems).catch(() => setItems([]));
   }, [api]);
 
-  useLive(load);
+  useLive(load, 20000, { skipEvents: ["sms:unmatched"] });
+
+  useEffect(() => {
+    const off = onSocketEvent("sms:unmatched", (payload) => {
+      const incoming = payload as UnmatchedSms | undefined;
+      if (!incoming?.id || incoming.resolvedAt) return;
+      setItems((prev) => {
+        if (!prev) return prev;
+        const exists = prev.some((i) => i.id === incoming.id);
+        return exists
+          ? prev.map((i) => (i.id === incoming.id ? { ...i, ...incoming } : i))
+          : [incoming, ...prev];
+      });
+    });
+    return off;
+  }, []);
 
   const createRule = async (item: UnmatchedSms) => {
     if (running.current) return;

@@ -60,8 +60,9 @@ export function connectSocket(): Socket {
   }
   const auth = { token: tokenGetter?.() ?? "" };
   socket = io(API_URL, {
-    // Start with HTTP long-polling and upgrade to WebSocket: some networks and
-    // proxies block raw WebSocket, which silently starves the app of events.
+    // Prefer WebSocket for the lowest latency; fall back to long-polling on
+    // networks/proxies that block it.
+    transports: ["websocket", "polling"],
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 500,

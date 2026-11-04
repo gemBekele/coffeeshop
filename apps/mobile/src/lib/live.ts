@@ -17,7 +17,11 @@ const LIVE_EVENTS = [
  *  3. a light periodic fallback while visible.
  * This guarantees both phones show the same data even if one misses an event.
  */
-export function useLive(load: () => void, intervalMs = 20000): void {
+export function useLive(
+  load: () => void,
+  intervalMs = 20000,
+  options?: { skipEvents?: string[] },
+): void {
   const loadRef = useRef(load);
   loadRef.current = load;
 
@@ -34,8 +38,9 @@ export function useLive(load: () => void, intervalMs = 20000): void {
       }, 250);
     };
 
-    const unsubscribers = LIVE_EVENTS.map((event) =>
-      onSocketEvent(event, refresh),
+    const skipped = new Set(options?.skipEvents ?? []);
+    const unsubscribers = LIVE_EVENTS.filter((event) => !skipped.has(event)).map(
+      (event) => onSocketEvent(event, refresh),
     );
     const unsubscribeSync = onSync(refresh);
 

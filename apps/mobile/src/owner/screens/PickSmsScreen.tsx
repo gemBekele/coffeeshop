@@ -18,6 +18,7 @@ import {
   type RawSms,
 } from "../../sms/reader";
 import { notificationCapture } from "../../notifications/service";
+import { smsCapture } from "../../sms/service";
 
 const MONEY_WORDS =
   /\b(etb|birr|telebirr|cbe|amole|awash)\b/i;
@@ -67,6 +68,9 @@ export function PickSmsScreen({
 
   useEffect(() => {
     void loadAll();
+    const unsubLiveSms = smsCapture.onSms(() => {
+      void loadAll();
+    });
     const unsub = notificationCapture.onCapturedSms((items) => {
       setCaptured(
         items.map((n) => ({
@@ -78,7 +82,10 @@ export function PickSmsScreen({
         })),
       );
     });
-    return unsub;
+    return () => {
+      unsub();
+      unsubLiveSms();
+    };
   }, [loadAll]);
 
   const combined = useMemo(() => {

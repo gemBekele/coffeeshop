@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
   colors,
@@ -10,6 +10,7 @@ import {
 } from "../../ui/kit";
 import { useApp } from "../../state/AppContext";
 import { useLive } from "../../lib/live";
+import { onSocketEvent } from "../../lib/socket";
 import type { Payment } from "../../api/client";
 
 type Filter = "todo" | "done";
@@ -55,7 +56,26 @@ export function PaymentsScreen({
       .catch(() => setAll([]));
   }, [api]);
 
-  useLive(load);
+  useLive(load, 20000, { skipEvents: ["payment:received"] });
+
+  // Apply new/updated transfers straight from the socket: no refetch, no
+  // visible reload.
+  useEffect(() => {
+    const off = onSocketEvent("payment:received", (payload) => {
+      const incoming = payload as Payment | undefined;
+      if (!incoming?.id) return;
+      if ((incoming.source ?? "SMS") === "MANUAL") return;
+      if ((incoming.bank ?? "").toUpperCase() === "CASH") return;
+      setAll((prev) => {
+        if (!prev) return prev;
+        const exists = prev.some((p) => p.id === incoming.id);
+        return exists
+          ? prev.map((p) => (p.id === incoming.id ? { ...p, ...incoming } : p))
+          : [incoming, ...prev];
+      });
+    });
+    return off;
+  }, []);
 
   const isSettled = (p: Payment) =>
     p.confirmed || p.status === "VERIFIED" || p.status === "MATCHED";
