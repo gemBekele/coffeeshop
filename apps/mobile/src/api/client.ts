@@ -480,6 +480,7 @@ export interface SmsTemplate {
   templateBody: string;
   version: number;
   sampleSms: string | null;
+  fieldMap?: { fields?: string[]; strict?: boolean } | null;
 }
 
 export interface TemplateDiagnostics {

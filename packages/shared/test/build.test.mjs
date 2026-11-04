@@ -52,3 +52,37 @@ test("invisible characters and smart punctuation do not break the match", () => 
 test("normalize collapses whitespace and trims", () => {
   assert.equal(normalizeSmsText("  a\u00A0 b\n\nc \u2013 d  "), "a b c - d");
 });
+
+const CBE_SAMPLE =
+  "Dear Halid Aragie Mekonnen You have received ETB 1.00 from account 1**8483 (Hayder Aman Temam) to your account 1**6113. Your current balance is ETB 2,859.71. Thanks for Banking with CBE. https://mbreciept.cbe.com.et/v2-hfHCxNKQIuBLPB4kYVPV  for feedback: https://forms.gle/kGNGQpG3mQCCk3iD6";
+const CBE_PRESET =
+  "You have received ETB {amount} from account {account} ({senderName}) to your account {account}. Your current balance is ETB {balance}. Thanks for Banking with CBE. https://mbreciept.cbe.com.et/v2-{txnId}";
+
+const CBE_NEXT =
+  "Dear Halid Aragie Mekonnen You have received ETB 250.00 from account 1**9911 (Dawit Bekele) to your account 1**6113. Your current balance is ETB 3,109.71. Thanks for Banking with CBE. https://mbreciept.cbe.com.et/v2-abc123XYZ789  for feedback: https://forms.gle/kGNGQpG3mQCCk3iD6";
+
+test("CBE account preset matches the real message and a later variant", () => {
+  const first = matchTemplateBest(CBE_PRESET, CBE_SAMPLE);
+  assert.equal(first.matched, true);
+  assert.equal(first.amount, 1);
+  assert.equal(first.txnId, "hfHCxNKQIuBLPB4kYVPV");
+  assert.equal(first.senderName, "Hayder Aman Temam");
+  assert.equal(first.balance, 2859.71);
+
+  const next = matchTemplateBest(CBE_PRESET, CBE_NEXT);
+  assert.equal(next.matched, true);
+  assert.equal(next.amount, 250);
+  assert.equal(next.txnId, "abc123XYZ789");
+  assert.equal(next.senderName, "Dawit Bekele");
+  assert.equal(next.balance, 3109.71);
+});
+
+test("pattern built from the CBE sample matches a later variant", () => {
+  const pattern = buildTemplateFromSample(CBE_SAMPLE);
+  assert.ok(pattern, "pattern built");
+  const result = matchTemplateBest(pattern, CBE_NEXT, { anchor: "both" });
+  assert.equal(result.matched, true, pattern);
+  assert.equal(result.amount, 250);
+  assert.equal(result.txnId, "abc123XYZ789");
+  assert.equal(result.senderName, "Dawit Bekele");
+});

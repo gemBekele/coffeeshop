@@ -170,6 +170,15 @@ async function main() {
         "Dear Customer, your account has been credited with ETB 300.00 from 0912345678 (Abebe). Ref No: FT26011ABC. Balance: ETB 5,300.00.",
     },
     {
+      name: "CBE - received (account)",
+      provider: SmsProvider.CBE_BIRR,
+      allowlist: ["CBE"],
+      templateBody:
+        "You have received ETB {amount} from account {account} ({senderName}) to your account {account}. Your current balance is ETB {balance}. Thanks for Banking with CBE. https://mbreciept.cbe.com.et/v2-{txnId}",
+      sampleSms:
+        "Dear Halid Aragie Mekonnen You have received ETB 1.00 from account 1**8483 (Hayder Aman Temam) to your account 1**6113. Your current balance is ETB 2,859.71. Thanks for Banking with CBE. https://mbreciept.cbe.com.et/v2-hfHCxNKQIuBLPB4kYVPV  for feedback: https://forms.gle/kGNGQpG3mQCCk3iD6",
+    },
+    {
       name: "Amole - received (preset)",
       provider: SmsProvider.AMOLE,
       allowlist: ["Amole"],

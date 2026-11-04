@@ -65,6 +65,7 @@ export function TemplateEditorScreen({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existing, setExisting] = useState<SmsTemplate | null>(null);
+  const [strict, setStrict] = useState(false);
 
   const applySample = (sms: string) => {
     setSampleSms(sms);
@@ -115,6 +116,7 @@ export function TemplateEditorScreen({
         setProvider(t.provider);
         setTemplateBody(t.templateBody);
         setSampleSms(t.sampleSms ?? "");
+        setStrict(Boolean(t.fieldMap?.strict));
       })
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
@@ -144,11 +146,18 @@ export function TemplateEditorScreen({
   const preview = useMemo(() => {
     if (!templateBody.trim() || !sampleSms.trim()) return null;
     try {
-      return matchTemplateBest(templateBody, sampleSms, { anchor: "both" });
+      // New rules from a sample are whole-message; existing presets keep their
+      // permissive (contains) matching so they still cover notification bodies.
+      const wholeMessage = templateId ? strict : true;
+      return matchTemplateBest(
+        templateBody,
+        sampleSms,
+        wholeMessage ? { anchor: "both" } : undefined,
+      );
     } catch {
       return null;
     }
-  }, [templateBody, sampleSms]);
+  }, [templateBody, sampleSms, templateId, strict]);
 
   const saveAndActivate = async () => {
     setError(null);
