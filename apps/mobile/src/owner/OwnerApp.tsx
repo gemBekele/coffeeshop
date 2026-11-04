@@ -142,7 +142,6 @@ export function OwnerApp() {
             onDayClose={() => setSub({ name: "dayClose" })}
             onStaff={() => setSub({ name: "staff" })}
             onSeeAllPayments={() => setSub({ name: "payments" })}
-            onOpenInbox={() => setSub({ name: "inbox" })}
             onVerify={() => setSub({ name: "verify" })}
           />
         </View>

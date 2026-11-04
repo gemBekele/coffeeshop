@@ -24,6 +24,13 @@ const money = (n: number) =>
 const timeOf = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+const capturedAt = (p: Payment) =>
+  new Date(p.createdAt ?? p.receivedAt).getTime();
+
+/** Newest captured first, regardless of the original message timestamp. */
+const newestFirst = (list: Payment[]) =>
+  [...list].sort((a, b) => capturedAt(b) - capturedAt(a));
+
 /**
  * Bank transfers. One row = payer, amount, reference and time. "Verify" marks
  * the transfer as received, which is what day close subtracts from sales.
@@ -46,10 +53,12 @@ export function PaymentsScreen({
       .payments()
       .then((r) =>
         setAll(
-          r.items.filter(
-            (p) =>
-              (p.source ?? "SMS") !== "MANUAL" &&
-              (p.bank ?? "").toUpperCase() !== "CASH",
+          newestFirst(
+            r.items.filter(
+              (p) =>
+                (p.source ?? "SMS") !== "MANUAL" &&
+                (p.bank ?? "").toUpperCase() !== "CASH",
+            ),
           ),
         ),
       )
@@ -69,9 +78,10 @@ export function PaymentsScreen({
       setAll((prev) => {
         if (!prev) return prev;
         const exists = prev.some((p) => p.id === incoming.id);
-        return exists
+        const next = exists
           ? prev.map((p) => (p.id === incoming.id ? { ...p, ...incoming } : p))
           : [incoming, ...prev];
+        return newestFirst(next);
       });
     });
     return off;

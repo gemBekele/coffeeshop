@@ -13,7 +13,7 @@ import {
 import { useApp } from "../../state/AppContext";
 import { notificationCapture } from "../../notifications/service";
 import { useLive } from "../../lib/live";
-import type { DayClose, MeResult, Payment, UnmatchedSms } from "../../api/client";
+import type { DayClose, MeResult, Payment } from "../../api/client";
 
 function initials(name?: string) {
   if (!name) return "S";
@@ -42,20 +42,17 @@ export function OwnerHomeScreen({
   onDayClose,
   onStaff,
   onSeeAllPayments,
-  onOpenInbox,
   onVerify,
 }: {
   onDayClose: () => void;
   onStaff: () => void;
   onSeeAllPayments: () => void;
-  onOpenInbox: () => void;
   onVerify: () => void;
 }) {
   const { api, session, syncCapture } = useApp();
   const [me, setMe] = useState<MeResult | null>(null);
   const [close, setClose] = useState<DayClose | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [unmatchedSms, setUnmatchedSms] = useState<UnmatchedSms[]>([]);
   const [ntfGranted, setNtfGranted] = useState(
     notificationCapture.isPermissionGranted(),
   );
@@ -79,12 +76,6 @@ export function OwnerHomeScreen({
         ),
       )
       .catch(() => {});
-    api
-      .smsInbox()
-      .then((list) =>
-        setUnmatchedSms(list.filter((i) => !i.resolvedAt).slice(0, 2)),
-      )
-      .catch(() => {});
   }, [api]);
 
   useLive(load);
@@ -97,7 +88,7 @@ export function OwnerHomeScreen({
   const totalSold = close?.total ?? 0;
   const bankTotal = close?.bank.amount ?? 0;
   const cashTotal = close?.cash.amount ?? 0;
-  const hasPayments = payments.length > 0 || unmatchedSms.length > 0;
+  const hasPayments = payments.length > 0;
 
   return (
     <Screen
@@ -176,18 +167,6 @@ export function OwnerHomeScreen({
         <Empty text="No bank payments yet. Incoming transfers appear here automatically." />
       ) : (
         <View style={{ gap: 10 }}>
-          {unmatchedSms.map((sms) => (
-            <ListRowCard
-              key={`sms-${sms.id}`}
-              icon="!"
-              highlight
-              title={sms.sender ?? "New bank message"}
-              subtitle={sms.body}
-              rightTop="Add rule"
-              rightBottom="One tap"
-              onPress={onOpenInbox}
-            />
-          ))}
           {payments.map((p) => (
             <ListRowCard
               key={p.id}

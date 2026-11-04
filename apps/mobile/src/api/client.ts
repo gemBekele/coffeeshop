@@ -410,6 +410,7 @@ export interface Payment {
   confirmed: boolean;
   orderId: string | null;
   receivedAt: string;
+  createdAt?: string;
   source?: string | null;
   order?: {
     id: string;

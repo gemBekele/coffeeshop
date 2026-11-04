@@ -148,8 +148,6 @@ export function InboxScreen({
                 highlight
                 title={item.sender ?? "Unknown sender"}
                 subtitle={item.body}
-                rightTop={busyId === item.id ? "Adding…" : "Add rule"}
-                rightBottom="One tap"
               />
             </Pressable>
           ))}
