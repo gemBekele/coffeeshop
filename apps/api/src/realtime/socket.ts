@@ -25,6 +25,12 @@ export function initRealtime(httpServer: HttpServer, corsOrigin: string): Socket
   io.on("connection", (socket) => {
     const shopId = socket.data.shopId as string;
     socket.join(`shop:${shopId}`);
+    console.log(
+      `[socket] connected shop=${shopId} staff=${socket.data.staffId} id=${socket.id}`,
+    );
+    socket.on("disconnect", (reason) => {
+      console.log(`[socket] disconnected id=${socket.id} reason=${reason}`);
+    });
   });
 
   return io;

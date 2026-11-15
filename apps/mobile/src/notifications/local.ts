@@ -60,7 +60,8 @@ export async function notifyPayment(input: {
         sound: "default",
         data: { type: "payment" },
       },
-      trigger: null,
+      // Immediate delivery on our high-priority channel.
+      trigger: { channelId: CHANNEL_ID },
     });
   } catch {
     // Never let a notification failure affect capture.
