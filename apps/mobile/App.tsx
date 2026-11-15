@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { SafeAreaView } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
 import { AppProvider, useApp } from "./src/state/AppContext";
+import { NotificationsProvider } from "./src/notifications/center";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { RegisterScreen } from "./src/screens/RegisterScreen";
 import { ActivateScreen } from "./src/employee/screens/ActivateScreen";
@@ -47,7 +48,9 @@ export default function App() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style="dark" />
       <AppProvider>
-        <Root />
+        <NotificationsProvider>
+          <Root />
+        </NotificationsProvider>
       </AppProvider>
     </SafeAreaView>
   );

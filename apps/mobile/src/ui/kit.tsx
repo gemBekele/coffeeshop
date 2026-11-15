@@ -375,7 +375,7 @@ export function PillTabBar<T extends string>({
   active,
   onSelect,
 }: {
-  tabs: Array<{ key: T; label: string; icon: NavIconName }>;
+  tabs: Array<{ key: T; label: string; icon: NavIconName; badge?: number }>;
   active: T;
   onSelect: (key: T) => void;
 }) {
@@ -404,6 +404,13 @@ export function PillTabBar<T extends string>({
                   size={22}
                   color={isActive ? colors.brand : colors.textMuted}
                 />
+                {tab.badge && tab.badge > 0 ? (
+                  <View style={styles.tabBadge}>
+                    <Text style={styles.tabBadgeText}>
+                      {tab.badge > 9 ? "9+" : tab.badge}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
               <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
                 {tab.label}
@@ -763,6 +770,23 @@ export const styles = StyleSheet.create({
   },
   tabIconWrapActive: {
     backgroundColor: colors.brandSoft,
+  },
+  tabBadge: {
+    position: "absolute",
+    top: -3,
+    right: 0,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: "#DC2626",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
   },
   tabLabel: {
     fontSize: 11,

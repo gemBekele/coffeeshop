@@ -5,6 +5,7 @@ import { VerifyScreen } from "./screens/VerifyScreen";
 import { EmployeeYouScreen } from "./screens/EmployeeYouScreen";
 import { TallyScreen } from "../screens/TallyScreen";
 import { colors, PillTabBar } from "../ui/kit";
+import { onNavigate, useNotifications } from "../notifications/center";
 import type { NavIconName } from "../ui/icons";
 
 type Tab = "sell" | "payments" | "you";
@@ -18,6 +19,24 @@ const TABS: Array<{ key: Tab; label: string; icon: NavIconName }> = [
 export function EmployeeApp() {
   const [tab, setTab] = useState<Tab>("sell");
   const [verify, setVerify] = useState(false);
+  const { unread, markRead } = useNotifications();
+
+  // Notification tap → Payments.
+  useEffect(() => {
+    return onNavigate((target) => {
+      if (target !== "payments") return;
+      setVerify(false);
+      setTab("payments");
+    });
+  }, []);
+
+  useEffect(() => {
+    if (tab === "payments" && !verify) markRead();
+  }, [tab, verify, markRead]);
+
+  const tabs = TABS.map((t) =>
+    t.key === "payments" ? { ...t, badge: unread } : t,
+  );
   // Prewarm after the first paint for instant tab switching.
   const [warm, setWarm] = useState(false);
   useEffect(() => {
@@ -49,7 +68,7 @@ export function EmployeeApp() {
         )}
       </View>
       <PillTabBar
-        tabs={TABS}
+        tabs={tabs}
         active={tab}
         onSelect={(next) => {
           setVerify(false);

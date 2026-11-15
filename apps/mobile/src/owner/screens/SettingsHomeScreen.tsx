@@ -1,5 +1,6 @@
 import React from "react";
 import { Btn, Screen, SettingsGroup, SettingsRow } from "../../ui/kit";
+import type { PermissionState } from "../../notifications/local";
 
 /**
  * Settings: calm, scannable sections. No icons — title, plain description,
@@ -14,6 +15,8 @@ export function SettingsHomeScreen({
   onStock,
   onReports,
   onSignOut,
+  alerts,
+  onEnableAlerts,
 }: {
   onDayClose: () => void;
   onTemplates: () => void;
@@ -23,6 +26,8 @@ export function SettingsHomeScreen({
   onStock: () => void;
   onReports: () => void;
   onSignOut: () => void;
+  alerts: PermissionState;
+  onEnableAlerts: () => void;
 }) {
   return (
     <Screen
@@ -53,6 +58,24 @@ export function SettingsHomeScreen({
           title="Unmatched messages"
           subtitle="Bank SMS that could not be matched"
           onPress={onInbox}
+          last
+        />
+      </SettingsGroup>
+
+      <SettingsGroup label="App">
+        <SettingsRow
+          title="Payment alerts"
+          subtitle={
+            alerts === "granted"
+              ? "Notifications are on for this phone"
+              : alerts === "denied"
+                ? "Blocked — allow notifications in system settings"
+                : "Get an alert for every incoming transfer"
+          }
+          value={
+            alerts === "granted" ? "On" : alerts === "denied" ? "Blocked" : "Enable"
+          }
+          onPress={alerts === "granted" ? undefined : onEnableAlerts}
           last
         />
       </SettingsGroup>

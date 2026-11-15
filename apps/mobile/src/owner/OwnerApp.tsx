@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Linking, StyleSheet, View } from "react-native";
 import { OwnerHomeScreen } from "./screens/OwnerHomeScreen";
 import { TemplatesScreen } from "./screens/TemplatesScreen";
 import { TemplateEditorScreen } from "./screens/TemplateEditorScreen";
@@ -18,6 +18,7 @@ import { VerifyScreen } from "../employee/screens/VerifyScreen";
 import { colors, PillTabBar } from "../ui/kit";
 import type { NavIconName } from "../ui/icons";
 import { useApp } from "../state/AppContext";
+import { onNavigate, useNotifications } from "../notifications/center";
 
 type Tab = "home" | "sell" | "menu" | "more";
 type Sub =
@@ -43,8 +44,24 @@ const TABS: Array<{ key: Tab; label: string; icon: NavIconName }> = [
 
 export function OwnerApp() {
   const { signOut } = useApp();
+  const { unread, markRead, permission, enable } = useNotifications();
   const [tab, setTab] = useState<Tab>("home");
   const [sub, setSub] = useState<Sub>(null);
+
+  useEffect(() => {
+    return onNavigate((target) => {
+      if (target !== "payments") return;
+      setSub({ name: "payments" });
+    });
+  }, []);
+
+  useEffect(() => {
+    if ((tab === "home" && !sub) || sub?.name === "payments") markRead();
+  }, [tab, sub, markRead]);
+
+  const tabs = TABS.map((t) =>
+    t.key === "home" ? { ...t, badge: unread } : t,
+  );
   // Prewarm the other tabs after the first paint: instant switching without
   // paying for every screen during startup.
   const [warm, setWarm] = useState(false);
@@ -166,6 +183,11 @@ export function OwnerApp() {
               onStock={() => setSub({ name: "stock" })}
               onReports={() => setSub({ name: "reports" })}
               onSignOut={signOut}
+              alerts={permission}
+              onEnableAlerts={() => {
+                if (permission === "denied") void Linking.openSettings();
+                else void enable();
+              }}
             />
           </View>
         ) : null}
@@ -176,7 +198,7 @@ export function OwnerApp() {
   return (
     <View style={styles.container}>
       <View style={styles.content}>{content}</View>
-      <PillTabBar tabs={TABS} active={tab} onSelect={goTab} />
+      <PillTabBar tabs={tabs} active={tab} onSelect={goTab} />
     </View>
   );
 }

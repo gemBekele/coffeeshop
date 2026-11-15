@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Linking, StyleSheet, Text, View } from "react-native";
 import {
   Btn,
   Card,
@@ -11,10 +11,12 @@ import {
   Subtitle,
 } from "../../ui/kit";
 import { useApp } from "../../state/AppContext";
+import { useNotifications } from "../../notifications/center";
 import type { MeResult } from "../../api/client";
 
 export function EmployeeYouScreen() {
   const { api, session, signOut } = useApp();
+  const { permission, enable } = useNotifications();
   const [me, setMe] = useState<MeResult | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -52,6 +54,35 @@ export function EmployeeYouScreen() {
           <StatPair label="Currency" value={me.shop.currency} last />
         </SettingsGroup>
       ) : null}
+
+      <SettingsGroup label="App">
+        <SettingsRow
+          title="Payment alerts"
+          subtitle={
+            permission === "granted"
+              ? "Notifications are on for this phone"
+              : permission === "denied"
+                ? "Blocked — allow notifications in system settings"
+                : "Get an alert for every incoming transfer"
+          }
+          value={
+            permission === "granted"
+              ? "On"
+              : permission === "denied"
+                ? "Blocked"
+                : "Enable"
+          }
+          onPress={
+            permission === "granted"
+              ? undefined
+              : () => {
+                  if (permission === "denied") void Linking.openSettings();
+                  else void enable();
+                }
+          }
+          last
+        />
+      </SettingsGroup>
 
       <Subtitle>
         Signing out removes this account from this phone. You will need a new QR
