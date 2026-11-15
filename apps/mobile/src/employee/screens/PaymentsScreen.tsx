@@ -24,12 +24,22 @@ const money = (n: number) =>
 const timeOf = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-const capturedAt = (p: Payment) =>
-  new Date(p.createdAt ?? p.receivedAt).getTime();
+const transactionTime = (p: Payment) =>
+  new Date(p.receivedAt ?? p.createdAt ?? 0).getTime();
 
-/** Newest captured first, regardless of the original message timestamp. */
+const captureTime = (p: Payment) =>
+  new Date(p.createdAt ?? p.receivedAt ?? 0).getTime();
+
+/**
+ * Order by when the transaction happened (the time shown on each row), with
+ * capture time as a tie-break. This keeps every phone's list consistent.
+ */
 const newestFirst = (list: Payment[]) =>
-  [...list].sort((a, b) => capturedAt(b) - capturedAt(a));
+  [...list].sort(
+    (a, b) =>
+      transactionTime(b) - transactionTime(a) ||
+      captureTime(b) - captureTime(a),
+  );
 
 /**
  * Bank transfers. One row = payer, amount, reference and time. "Verify" marks

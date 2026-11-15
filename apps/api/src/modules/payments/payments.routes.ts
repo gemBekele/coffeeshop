@@ -272,9 +272,9 @@ router.get(
       prisma.payment.count({ where }),
       prisma.payment.findMany({
         where,
-        // Capture time first: a payment picked up now belongs at the top even
-        // if the original SMS was timestamped earlier.
-        orderBy: [{ createdAt: "desc" }, { receivedAt: "desc" }],
+        // Transaction time first so the visible order matches the times shown
+        // on every phone; tie-break by capture time.
+        orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
